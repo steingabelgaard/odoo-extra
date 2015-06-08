@@ -26,7 +26,7 @@ from matplotlib.textpath import TextToPath
 import werkzeug
 
 import openerp
-from openerp import http
+from openerp import http, SUPERUSER_ID
 from openerp.http import request
 from openerp.osv import fields, osv
 from openerp.tools import config, appdirs
@@ -145,7 +145,7 @@ def uniq_list(l):
     return OrderedDict.fromkeys(l).keys()
 
 def fqdn():
-    return socket.gethostname()
+    return socket.getfqdn()
 
 #----------------------------------------------------------
 # RunBot Models
@@ -153,7 +153,7 @@ def fqdn():
 
 class runbot_repo(osv.osv):
     _name = "runbot.repo"
-    _order = 'name'
+    _order = 'id'
 
     def _get_path(self, cr, uid, ids, field_name, arg, context=None):
         root = self.root(cr, uid)
@@ -169,6 +169,7 @@ class runbot_repo(osv.osv):
         result = {}
         for repo in self.browse(cr, uid, ids, context=context):
             name = re.sub('.+@', '', repo.name)
+            name = re.sub('.git$', '', name)
             name = name.replace(':','/')
             result[repo.id] = name
         return result
@@ -177,12 +178,12 @@ class runbot_repo(osv.osv):
         'name': fields.char('Repository', required=True),
         'path': fields.function(_get_path, type='char', string='Directory', readonly=1),
         'base': fields.function(_get_base, type='char', string='Base URL', readonly=1),
-        'testing': fields.integer('Concurrent Testing'),
-        'running': fields.integer('Concurrent Running'),
-        'jobs': fields.char('Jobs'),
+        'testing': fields.integer('Concurrent Testing', deprecated=True),
+        'running': fields.integer('Concurrent Running', deprecated=True),
+        'jobs': fields.char('Jobs', deprecated=True),
         'nginx': fields.boolean('Nginx'),
         'auto': fields.boolean('Auto'),
-        'duplicate_id': fields.many2one('runbot.repo', 'Repository for finding duplicate builds'),
+        'duplicate_id': fields.many2one('runbot.repo', 'Duplicate repo', help='Repository for finding duplicate builds'),
         'modules': fields.char("Modules to Install", help="Comma-separated list of modules to install and test."),
         'dependency_ids': fields.many2many(
             'runbot.repo', 'runbot_repo_dep_rel',
@@ -190,10 +191,9 @@ class runbot_repo(osv.osv):
             string='Extra dependencies',
             help="Community addon repos which need to be present to run tests."),
         'token': fields.char("Github token"),
+        'group_ids': fields.many2many('res.groups', string='Limited to groups'),
     }
     _defaults = {
-        'testing': 1,
-        'running': 1,
         'auto': True,
     }
 
@@ -221,26 +221,30 @@ class runbot_repo(osv.osv):
             p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
             p2.communicate()[0]
 
-    def github(self, cr, uid, ids, url, payload=None, delete=False, context=None):
+    def github(self, cr, uid, ids, url, payload=None, ignore_errors=False, context=None):
         """Return a http request to be sent to github"""
         for repo in self.browse(cr, uid, ids, context=context):
             if not repo.token:
-                raise Exception('Repository does not have a token to authenticate')
-            match_object = re.search('([^/]+)/([^/]+)/([^/.]+(.git)?)', repo.base)
-            if match_object:
-                url = url.replace(':owner', match_object.group(2))
-                url = url.replace(':repo', match_object.group(3))
-                url = 'https://api.%s%s' % (match_object.group(1),url)
-                session = requests.Session()
-                session.auth = (repo.token,'x-oauth-basic')
-                session.headers.update({'Accept': 'application/vnd.github.she-hulk-preview+json'})
-                if payload:
-                    response = session.post(url, data=simplejson.dumps(payload))
-                elif delete:
-                    response = session.delete(url)
+                return
+            try:
+                match_object = re.search('([^/]+)/([^/]+)/([^/.]+(.git)?)', repo.base)
+                if match_object:
+                    url = url.replace(':owner', match_object.group(2))
+                    url = url.replace(':repo', match_object.group(3))
+                    url = 'https://api.%s%s' % (match_object.group(1),url)
+                    session = requests.Session()
+                    session.auth = (repo.token,'x-oauth-basic')
+                    session.headers.update({'Accept': 'application/vnd.github.she-hulk-preview+json'})
+                    if payload:
+                        response = session.post(url, data=simplejson.dumps(payload))
+                    else:
+                        response = session.get(url)
+                    return response.json()
+            except Exception:
+                if ignore_errors:
+                    _logger.exception('Ignored github error %s %r', url, payload)
                 else:
-                    response = session.get(url)
-                return response.json()
+                    raise
 
     def update(self, cr, uid, ids, context=None):
         for repo in self.browse(cr, uid, ids, context=context):
@@ -257,17 +261,18 @@ class runbot_repo(osv.osv):
         if not os.path.isdir(os.path.join(repo.path, 'refs')):
             run(['git', 'clone', '--bare', repo.name, repo.path])
         else:
+            repo.git(['gc', '--auto', '--prune=all'])
             repo.git(['fetch', '-p', 'origin', '+refs/heads/*:refs/heads/*'])
             repo.git(['fetch', '-p', 'origin', '+refs/pull/*/head:refs/pull/*'])
 
-        fields = ['refname','objectname','committerdate:iso8601','authorname','subject','committername']
+        fields = ['refname','objectname','committerdate:iso8601','authorname','authoremail','subject','committername','committeremail']
         fmt = "%00".join(["%("+field+")" for field in fields])
         git_refs = repo.git(['for-each-ref', '--format', fmt, '--sort=-committerdate', 'refs/heads', 'refs/pull'])
         git_refs = git_refs.strip()
 
         refs = [[decode_utf(field) for field in line.split('\x00')] for line in git_refs.split('\n')]
 
-        for name, sha, date, author, subject, committer in refs:
+        for name, sha, date, author, author_email, subject, committer, committer_email in refs:
             # create or get branch
             branch_ids = Branch.search(cr, uid, [('repo_id', '=', repo.id), ('name', '=', name)])
             if branch_ids:
@@ -282,20 +287,27 @@ class runbot_repo(osv.osv):
             # create build (and mark previous builds as skipped) if not found
             build_ids = Build.search(cr, uid, [('branch_id', '=', branch.id), ('name', '=', sha)])
             if not build_ids:
-                if not branch.sticky:
-                    to_be_skipped_ids = Build.search(cr, uid, [('branch_id', '=', branch.id), ('state', '=', 'pending')])
-                    Build.skip(cr, uid, to_be_skipped_ids)
-
                 _logger.debug('repo %s branch %s new build found revno %s', branch.repo_id.name, branch.name, sha)
                 build_info = {
                     'branch_id': branch.id,
                     'name': sha,
                     'author': author,
+                    'author_email': author_email,
                     'committer': committer,
+                    'committer_email': committer_email,
                     'subject': subject,
                     'date': dateutil.parser.parse(date[:19]),
-                    'modules': branch.repo_id.modules,
+                    'modules': ','.join(filter(None, [branch.repo_id.modules, branch.modules])),
                 }
+
+                if not branch.sticky:
+                    skipped_build_sequences = Build.search_read(cr, uid, [('branch_id', '=', branch.id), ('state', '=', 'pending')],
+                                                                fields=['sequence'], order='sequence asc', context=context)
+                    if skipped_build_sequences:
+                        to_be_skipped_ids = [build['id'] for build in skipped_build_sequences]
+                        Build.skip(cr, uid, to_be_skipped_ids, context=context)
+                        # new order keeps lowest skipped sequence
+                        build_info['sequence'] = skipped_build_sequences[0]['sequence']
                 Build.create(cr, uid, build_info)
 
         # skip old builds (if their sequence number is too low, they will not ever be built)
@@ -310,6 +322,7 @@ class runbot_repo(osv.osv):
         workers = int(icp.get_param(cr, uid, 'runbot.workers', default=6))
         running_max = int(icp.get_param(cr, uid, 'runbot.running_max', default=75))
         host = fqdn()
+        _logger.debug("Scheduler run %s", host)        
 
         Build = self.pool['runbot.build']
         domain = [('repo_id', 'in', ids)]
@@ -331,6 +344,7 @@ class runbot_repo(osv.osv):
                 pending_ids = Build.search(cr, uid, domain + [('state', '=', 'pending')], order="sequence", limit=1)
 
             pending_build = Build.browse(cr, uid, pending_ids[0])
+            _logger.debug("Build_schedule")
             pending_build.schedule()
 
             # compute the number of testing and pending jobs again
@@ -350,7 +364,7 @@ class runbot_repo(osv.osv):
         build_ids = sticky.values()
         build_ids += non_sticky
         # terminate extra running builds
-        Build.terminate(cr, uid, build_ids[running_max:])
+        Build.kill(cr, uid, build_ids[running_max:])
         Build.reap(cr, uid, build_ids)
 
     def reload_nginx(self, cr, uid, context=None):
@@ -378,8 +392,7 @@ class runbot_repo(osv.osv):
         # kill switch
         Build = self.pool['runbot.build']
         build_ids = Build.search(cr, uid, [('state', 'not in', ['done', 'pending'])])
-        Build.terminate(cr, uid, build_ids)
-        Build.reap(cr, uid, build_ids)
+        Build.kill(cr, uid, build_ids)
 
     def cron(self, cr, uid, ids=None, context=None):
         ids = self.search(cr, uid, [('auto', '=', True)], context=context)
@@ -414,6 +427,7 @@ class runbot_branch(osv.osv):
         'sticky': fields.boolean('Sticky', select=1),
         'coverage': fields.boolean('Coverage'),
         'state': fields.char('Status'),
+        'modules': fields.char("Modules to Install", help="Comma-separated list of modules to install and test."),
     }
 
 class runbot_build(osv.osv):
@@ -467,7 +481,9 @@ class runbot_build(osv.osv):
         'domain': fields.function(_get_domain, type='char', string='URL'),
         'date': fields.datetime('Commit date'),
         'author': fields.char('Author'),
+        'author_email': fields.char('Author Email'),
         'committer': fields.char('Committer'),
+        'committer_email': fields.char('Committer Email'),
         'subject': fields.text('Subject'),
         'sequence': fields.integer('Sequence', select=1),
         'modules': fields.char("Modules to Install"),
@@ -504,8 +520,6 @@ class runbot_build(osv.osv):
         if len(duplicate_ids):
             extra_info.update({'state': 'duplicate', 'duplicate_id': duplicate_ids[0]})
             self.write(cr, uid, [duplicate_ids[0]], {'duplicate_id': build_id})
-            if self.browse(cr, uid, duplicate_ids[0]).state != 'pending':
-                self.github_status(cr, uid, [build_id])
         self.write(cr, uid, [build_id], extra_info, context=context)
 
     def reset(self, cr, uid, ids, context=None):
@@ -537,12 +551,12 @@ class runbot_build(osv.osv):
 
     def get_closest_branch_name(self, cr, uid, ids, target_repo_id, hint_branches, context=None):
         """Return the name of the closest common branch between both repos
-        Find common branch names, get merge-base with the branch name and
-        return the most recent.
-        Fallback repos will not have always have the same names for branch
-        names.
-        Pull request branches should not have any association with PR of other
-        repos
+        Rules priority for choosing the branch from the other repo is:
+        1. Same branch name
+        2. Common ancestors (git merge-base)
+        3. Name splitting on '-' character
+        Note that PR numbers are replaced by the branch name from which the PR is made,
+        to prevent the above rules to mistakenly link PR of different repos together.
         """
         branch_pool = self.pool['runbot.branch']
         for build in self.browse(cr, uid, ids, context=context):
@@ -567,11 +581,20 @@ class runbot_build(osv.osv):
                     possible_branches = hinted_branches
                 common_refs = {}
                 for target_branch_name in possible_branches:
-                    commit = repo.git(['merge-base', branch.name, target_branch_name]).strip()
-                    cmd = ['log', '-1', '--format=%cd', '--date=iso', commit]
-                    common_refs[target_branch_name] = repo.git(cmd).strip()
+                    try:
+                        commit = repo.git(['merge-base', branch.name, target_branch_name]).strip()
+                        cmd = ['log', '-1', '--format=%cd', '--date=iso', commit]
+                        common_refs[target_branch_name] = repo.git(cmd).strip()
+                    except subprocess.CalledProcessError:
+                        # If merge-base doesn't find any common ancestor, the command exits with a
+                        # non-zero return code, resulting in subprocess.check_output raising this
+                        # exception. We ignore this branch as there is no common ref between us.
+                        continue
                 if common_refs:
                     name = sorted(common_refs.iteritems(), key=operator.itemgetter(1), reverse=True)[0][0]
+                else:
+                    # If all else as failed, fallback on '-' splitting
+                    name = build.branch_id.name.split('-', 1)[0]
             return name
 
     def path(self, cr, uid, ids, *l, **kw):
@@ -607,7 +630,7 @@ class runbot_build(osv.osv):
             additional_modules = []
             if not os.path.isfile(build.server('__init__.py')):
                 # Use modules to test previously configured in the repository
-                modules_to_test = build.repo_id.modules
+                modules_to_test = build.modules
                 if not modules_to_test:
                     # Find modules to test from the folder branch
                     modules_to_test = ','.join(
@@ -667,24 +690,31 @@ class runbot_build(osv.osv):
             else:
                 l = glob.glob(build.server('addons', '*', '__init__.py'))
                 modules = set(os.path.basename(os.path.dirname(i)) for i in l)
-                modules = modules - set(['auth_ldap', 'document_ftp', 'hw_escpos', 'hw_proxy', 'hw_scanner', 'base_gengo', 'website_gengo'])
+                modules = modules - set(['auth_ldap', 'document_ftp', 'hw_escpos', 'hw_proxy', 'hw_scanner', 'base_gengo', 'website_gengo', 'website_instantclick'])
                 modules = ",".join(list(modules))
 
             # commandline
             cmd = [
                 sys.executable,
                 server_path,
-                "--no-xmlrpcs",
                 "--xmlrpc-port=%d" % build.port,
             ]
             # options
+            if grep(build.server("tools/config.py"), "no-xmlrpcs"):
+                cmd.append("--no-xmlrpcs")
             if grep(build.server("tools/config.py"), "no-netrpc"):
                 cmd.append("--no-netrpc")
             if grep(build.server("tools/config.py"), "log-db"):
                 logdb = cr.dbname
-                if grep(build.server('sql_db.py'), 'allow_uri'):
+                if config['db_host'] and grep(build.server('sql_db.py'), 'allow_uri'):
                     logdb = 'postgres://{cfg[db_user]}:{cfg[db_password]}@{cfg[db_host]}/{db}'.format(cfg=config, db=cr.dbname)
                 cmd += ["--log-db=%s" % logdb]
+
+            if grep(build.server("tools/config.py"), "data-dir"):
+                datadir = build.path('datadir')
+                if not os.path.exists(datadir):
+                    os.mkdir(datadir)
+                cmd += ["--data-dir", datadir]
 
         # coverage
         #coverage_file_path=os.path.join(log_path,'coverage.pickle')
@@ -696,7 +726,7 @@ class runbot_build(osv.osv):
 
         return cmd, modules
 
-    def spawn(self, cmd, lock_path, log_path, cpu_limit=None, shell=False, showstderr=False):
+    def spawn(self, cmd, lock_path, log_path, cpu_limit=None, shell=False):
         def preexec_fn():
             os.setsid()
             if cpu_limit:
@@ -710,49 +740,43 @@ class runbot_build(osv.osv):
             lock(lock_path)
         out=open(log_path,"w")
         _logger.debug("spawn: %s stdout: %s", ' '.join(cmd), log_path)
-        if showstderr:
-            stderr = out
-        else:
-            stderr = open(os.devnull, 'w')
-        p=subprocess.Popen(cmd, stdout=out, stderr=stderr, preexec_fn=preexec_fn, shell=shell)
+        p=subprocess.Popen(cmd, stdout=out, stderr=out, preexec_fn=preexec_fn, shell=shell)
         return p.pid
 
     def github_status(self, cr, uid, ids, context=None):
         """Notify github of failed/successful builds"""
         runbot_domain = self.pool['runbot.repo'].domain(cr, uid)
         for build in self.browse(cr, uid, ids, context=context):
-            if build.state != 'duplicate' and build.duplicate_id:
-                self.github_status(cr, uid, [build.duplicate_id.id], context=context)
             desc = "runbot build %s" % (build.dest,)
-            real_build = build.duplicate_id if build.state == 'duplicate' else build
-            if real_build.state == 'testing':
+            if build.state == 'testing':
                 state = 'pending'
-            elif real_build.state in ('running', 'done'):
-                state = {
-                    'ok': 'success',
-                    'killed': 'error',
-                }.get(real_build.result, 'failure')
-                desc += " (runtime %ss)" % (real_build.job_time,)
+            elif build.state in ('running', 'done'):
+                state = 'error'
+                if build.result == 'ok':
+                    state = 'success'
+                if build.result == 'ko':
+                    state = 'failure'
+                desc += " (runtime %ss)" % (build.job_time,)
             else:
                 continue
-
             status = {
                 "state": state,
                 "target_url": "http://%s/runbot/build/%s" % (runbot_domain, build.id),
                 "description": desc,
-                "context": "continuous-integration/runbot"
+                "context": "ci/runbot"
             }
-            try:
-                build.repo_id.github('/repos/:owner/:repo/statuses/%s' % build.name, status)
-                _logger.debug("github status %s update to %s", build.name, state)
-            except Exception:
-                _logger.exception("github status error")
+            _logger.debug("github updating status %s to %s", build.name, state)
+            build.repo_id.github('/repos/:owner/:repo/statuses/%s' % build.name, status, ignore_errors=True)
+
+    def job_00_init(self, cr, uid, build, lock_path, log_path):
+        build._log('init', 'Init build environment')
+        # notify pending build - avoid confusing users by saying nothing
+        build.github_status()
+        build.checkout()
+        return -2
 
     def job_10_test_base(self, cr, uid, build, lock_path, log_path):
         build._log('test_base', 'Start test base module')
-        build.github_status()
-        # checkout source
-        build.checkout()
         # run base test
         self.pg_createdb(cr, uid, "%s-base" % build.dest)
         cmd, mods = build.cmd()
@@ -822,7 +846,7 @@ class runbot_build(osv.osv):
         #    f.close()
         #cmd=[self.client_web_bin_path]
 
-        return self.spawn(cmd, lock_path, log_path, cpu_limit=None, showstderr=True)
+        return self.spawn(cmd, lock_path, log_path, cpu_limit=None)
 
     def force(self, cr, uid, ids, context=None):
         """Force a rebuild"""
@@ -836,7 +860,8 @@ class runbot_build(osv.osv):
 
             # Force it now
             if build.state == 'done' and build.result == 'skipped':
-                build.write({'state': 'pending', 'sequence':sequence, 'result': '' })
+                values = {'state': 'pending', 'sequence':sequence, 'result': ''}
+                self.write(cr, SUPERUSER_ID, [build.id], values, context=context)
             # or duplicate it
             elif build.state in ['running', 'done', 'duplicate']:
                 new_build = {
@@ -844,16 +869,20 @@ class runbot_build(osv.osv):
                     'branch_id': build.branch_id.id,
                     'name': build.name,
                     'author': build.author,
+                    'author_email': build.author_email,
                     'committer': build.committer,
+                    'committer_email': build.committer_email,
                     'subject': build.subject,
+                    'modules': build.modules,
                 }
-                self.create(cr, 1, new_build, context=context)
+                self.create(cr, SUPERUSER_ID, new_build, context=context)
             return build.repo_id.id
 
     def schedule(self, cr, uid, ids, context=None):
         jobs = self.list_jobs()
         icp = self.pool['ir.config_parameter']
         timeout = int(icp.get_param(cr, uid, 'runbot.timeout', default=1800))
+        _logger.debug("Build_schedule 2")
 
         for build in self.browse(cr, uid, ids, context=context):
             if build.state == 'pending':
@@ -876,7 +905,7 @@ class runbot_build(osv.osv):
                     # kill if overpassed
                     if build.job != jobs[-1] and build.job_time > timeout:
                         build.logger('%s time exceded (%ss)', build.job, build.job_time)
-                        build.kill()
+                        build.kill(result='killed')
                     continue
                 build.logger('%s finished', build.job)
                 # schedule
@@ -897,9 +926,11 @@ class runbot_build(osv.osv):
             build.refresh()
 
             # run job
+            pid = None
             if build.state != 'done':
                 build.logger('running %s', build.job)
                 job_method = getattr(self,build.job)
+                mkdirs([build.path('logs')])
                 lock_path = build.path('logs', '%s.lock' % build.job)
                 log_path = build.path('logs', '%s.txt' % build.job)
                 pid = job_method(cr, uid, build, lock_path, log_path)
@@ -907,32 +938,43 @@ class runbot_build(osv.osv):
             # needed to prevent losing pids if multiple jobs are started and one them raise an exception
             cr.commit()
 
+            if pid == -2:
+                # no process to wait, directly call next job
+                # FIXME find a better way that this recursive call
+                build.schedule()
+
+            # cleanup only needed if it was not killed
+            if build.state == 'done':
+                build.cleanup()
+
     def skip(self, cr, uid, ids, context=None):
         self.write(cr, uid, ids, {'state': 'done', 'result': 'skipped'}, context=context)
         to_unduplicate = self.search(cr, uid, [('id', 'in', ids), ('duplicate_id', '!=', False)])
         if len(to_unduplicate):
             self.force(cr, uid, to_unduplicate, context=context)
 
-    def terminate(self, cr, uid, ids, context=None):
+    def cleanup(self, cr, uid, ids, context=None):
         for build in self.browse(cr, uid, ids, context=context):
-            build.logger('killing %s', build.pid)
-            try:
-                os.killpg(build.pid, signal.SIGKILL)
-            except OSError:
-                pass
-            build.write({'state': 'done'})
-            cr.commit()
             self.pg_dropdb(cr, uid, "%s-base" % build.dest)
             self.pg_dropdb(cr, uid, "%s-all" % build.dest)
             if os.path.isdir(build.path()):
                 shutil.rmtree(build.path())
 
-    def kill(self, cr, uid, ids, context=None):
+    def kill(self, cr, uid, ids, result=None, context=None):
         for build in self.browse(cr, uid, ids, context=context):
             build._log('kill', 'Kill build %s' % build.dest)
-            build.terminate()
-            build.write({'result': 'killed', 'job': False})
+            build.logger('killing %s', build.pid)
+            try:
+                os.killpg(build.pid, signal.SIGKILL)
+            except OSError:
+                pass
+            v = {'state': 'done', 'job': False}
+            if result:
+                v['result'] = result
+            build.write(v)
+            cr.commit()
             build.github_status()
+            build.cleanup()
 
     def reap(self, cr, uid, ids):
         while True:
@@ -946,6 +988,7 @@ class runbot_build(osv.osv):
 
     def _log(self, cr, uid, ids, func, message, context=None):
         assert len(ids) == 1
+        _logger.debug("Build %s %s %s", ids[0], func, message)
         self.pool['ir.logging'].create(cr, uid, {
             'build_id': ids[0],
             'level': 'INFO',
@@ -973,9 +1016,9 @@ class runbot_event(osv.osv):
 
 class RunbotController(http.Controller):
 
-    @http.route(['/runbot', '/runbot/repo/<model("runbot.repo"):repo>'], type='http', auth="public", website=True)
+    @http.route(['/runbot', '/runbot/repo/<model("runbot.repo"):repo>'], type='http', auth="user", website=True)
     def repo(self, repo=None, search='', limit='100', refresh='', **post):
-        registry, cr, uid = request.registry, request.cr, 1
+        registry, cr, uid = request.registry, request.cr, request.uid
 
         branch_obj = registry['runbot.branch']
         build_obj = registry['runbot.build']
@@ -983,7 +1026,7 @@ class RunbotController(http.Controller):
         repo_obj = registry['runbot.repo']
         count = lambda dom: build_obj.search_count(cr, uid, dom)
 
-        repo_ids = repo_obj.search(cr, uid, [], order='id')
+        repo_ids = repo_obj.search(cr, uid, [])
         repos = repo_obj.browse(cr, uid, repo_ids)
         if not repo and repos:
             repo = repos[0] 
@@ -1099,12 +1142,15 @@ class RunbotController(http.Controller):
 
     @http.route(['/runbot/build/<build_id>'], type='http', auth="public", website=True)
     def build(self, build_id=None, search=None, **post):
-        registry, cr, uid, context = request.registry, request.cr, 1, request.context
+        registry, cr, uid, context = request.registry, request.cr, request.uid, request.context
 
         Build = registry['runbot.build']
         Logging = registry['ir.logging']
 
         build = Build.browse(cr, uid, [int(build_id)])[0]
+        if not build.exists():
+            return request.not_found()
+
         real_build = build.duplicate_id if build.state == 'duplicate' else build
 
         # other builds
@@ -1118,13 +1164,13 @@ class RunbotController(http.Controller):
         #    domain.append(('level', '=', level))
         if search:
             domain.append(('name', 'ilike', search))
-        logging_ids = Logging.search(cr, uid, domain)
+        logging_ids = Logging.search(cr, SUPERUSER_ID, domain)
 
         context = {
             'repo': build.repo_id,
             'build': self.build_info(build),
             'br': {'branch': build.branch_id},
-            'logs': Logging.browse(cr, uid, logging_ids),
+            'logs': Logging.browse(cr, SUPERUSER_ID, logging_ids),
             'other_builds': other_builds
         }
         #context['type'] = type
@@ -1133,17 +1179,18 @@ class RunbotController(http.Controller):
 
     @http.route(['/runbot/build/<build_id>/force'], type='http', auth="public", methods=['POST'])
     def build_force(self, build_id, **post):
-        registry, cr, uid, context = request.registry, request.cr, 1, request.context
+        registry, cr, uid, context = request.registry, request.cr, request.uid, request.context
         repo_id = registry['runbot.build'].force(cr, uid, [int(build_id)])
         return werkzeug.utils.redirect('/runbot/repo/%s' % repo_id)
 
     @http.route([
-        '/runbot/badge/<model("runbot.repo"):repo>/<branch>.svg',
-        '/runbot/badge/<any(default,flat):theme>/<model("runbot.repo"):repo>/<branch>.svg',
+        '/runbotbadge/<repo_id>/<branch>.svg',
+        '/runbotbadge/<any(default,flat):theme>/<repo_id>/<branch>.svg',
     ], type="http", auth="public", methods=['GET', 'HEAD'])
-    def badge(self, repo, branch, theme='default'):
+    def badge(self, repo_id, branch, theme='default'):
+        
 
-        domain = [('repo_id', '=', repo.id),
+        domain = [('repo_id', '=', int(repo_id)),
                   ('branch_id.branch_name', '=', branch),
                   ('branch_id.sticky', '=', True),
                   ('state', 'in', ['testing', 'running', 'done']),
@@ -1152,7 +1199,7 @@ class RunbotController(http.Controller):
 
         last_update = '__last_update'
         builds = request.registry['runbot.build'].search_read(
-            request.cr, request.uid,
+            request.cr, 1,
             domain, ['state', 'result', 'job_age', last_update],
             order='id desc', limit=1)
 
@@ -1209,6 +1256,42 @@ class RunbotController(http.Controller):
             ('ETag', retag),
         ]
         return request.render("runbot.badge_" + theme, data, headers=headers)
+
+    @http.route(['/runbot/b/<branch_name>', '/runbot/<model("runbot.repo"):repo>/<branch_name>'], type='http', auth="public", website=True)
+    def fast_launch(self, branch_name=False, repo=False, **post):
+        pool, cr, uid, context = request.registry, request.cr, request.uid, request.context
+        Build = pool['runbot.build']
+
+        domain = [('branch_id.branch_name', '=', branch_name)]
+
+        if repo:
+            domain.extend([('branch_id.repo_id', '=', repo.id)])
+            order="sequence desc"
+        else:
+            order = 'repo_id ASC, sequence DESC'
+
+        # Take the 10 lasts builds to find at least 1 running... Else no luck
+        builds = Build.search(cr, uid, domain, order=order, limit=10, context=context)
+
+        if builds:
+            last_build = False
+            for build in Build.browse(cr, uid, builds, context=context):
+                if build.state == 'running' or (build.state == 'duplicate' and build.duplicate_id.state == 'running'):
+                    last_build = build if build.state == 'running' else build.duplicate_id
+                    break
+
+            if not last_build:
+                # Find the last build regardless the state to propose a rebuild
+                last_build = Build.browse(cr, uid, builds[0], context=context)
+
+            if last_build.state != 'running':
+                url = "/runbot/build/%s?ask_rebuild=1" % last_build.id
+            else:
+                url = ("http://%s/login?db=%s-all&login=admin&key=admin%s" %
+                       (last_build.domain, last_build.dest, "&redirect=/web?debug=1" if not build.branch_id.branch_name.startswith('7.0') else ''))
+        else:
+            return request.not_found()
+        return werkzeug.utils.redirect(url)
 
 # kill ` ps faux | grep ./static  | awk '{print $2}' `
 # ps faux| grep Cron | grep -- '-all'  | awk '{print $2}' | xargs kill

@@ -13,22 +13,18 @@
                     <div class="oe_title">
                         <label for="name" class="oe_edit_only"/>
                         <h1><field name="name" class="oe_inline"/></h1>
-                        <button name="update" type="object" string="Update"/>
-                        <button name="cron" type="object" string="Cron"/>
-                        <button name="killall" type="object" string="Killall"/>
+                        <button name="update" type="object" string="Update" groups="runbot.group_runbot_admin"/>
+                        <button name="cron" type="object" string="Cron" groups="runbot.group_runbot_admin"/>
+                        <button name="killall" type="object" string="Killall" groups="runbot.group_runbot_admin"/>
                     </div>
                     <group string="Params">
-                        <field name="testing"/>
-                        <field name="running"/>
                         <field name="auto"/>
-                        <field name="jobs"/>
                         <field name="nginx"/>
                         <field name="duplicate_id"/>
-                        <field name="dependency_ids">
-                            <tree><field name="name"/></tree>
-                        </field>
+                        <field name="dependency_ids" widget="many2many_tags"/>
                         <field name="modules"/>
                         <field name="token"/>
+                        <field name="group_ids" widget="many2many_tags"/>
                     </group>
                 </sheet>
             </form>
@@ -39,8 +35,6 @@
         <field name="arch" type="xml">
             <tree string="repos">
                 <field name="name"/>
-                <field name="testing"/>
-                <field name="running"/>
                 <field name="auto"/>
             </tree>
         </field>
@@ -66,6 +60,7 @@
                         <field name="branch_url"/>
                         <field name="sticky"/>
                         <field name="state"/>
+                        <field name="modules"/>
                     </group>
                 </sheet>
             </form>
@@ -121,7 +116,9 @@
                         <field name="name"/>
                         <field name="date"/>
                         <field name="author"/>
+                        <field name="author_email"/>
                         <field name="committer"/>
+                        <field name="committer_email"/>
                         <field name="subject"/>
                         <field name="port"/>
                         <field name="dest"/>
@@ -134,6 +131,7 @@
                         <field name="job_time"/>
                         <field name="job_age"/>
                         <field name="duplicate_id"/>
+                        <field name="modules"/>
                     </group>
                 </sheet>
             </form>
@@ -232,6 +230,24 @@
       </xpath>
     </template>
 
+    <!-- Replace default menu ( Home / Contactus and co...) with 5 first repos) -->
+    <template id="inherits_branch_in_menu" inherit_id="website.layout" name="Inherits Show top 5 branches in menu">
+        <xpath expr="//t[@t-foreach=&quot;website.menu_id.child_id&quot;][@t-as=&quot;submenu&quot;]" position="replace">
+            <t t-if="repos" >
+                 <t t-foreach="repos[:5]" t-as="re">
+                     <li><a t-attf-href="/runbot/repo/{{slug(re)}}"><i class='fa fa-github' /> <t t-esc="re.name.split(':')[1]"/></a></li>
+                 </t>
+            </t>
+        </xpath>
+    </template>
+
+    <!-- remove black bar with switcher d'apps -->
+    <template id="inherits_no_black_bar" inherit_id="website.user_navbar" name="Inherits No black user_navbar">
+        <xpath expr="//t[@t-if=&quot;website and menu_data&quot;]" position="attributes">
+            <attribute name="groups">base.group_website_publisher</attribute>
+        </xpath>
+    </template>
+
     <template id="runbot.build_name">
         <t t-if="bu['state']=='pending'"><i class="text-default fa fa-pause"/> pending</t>
         <t t-if="bu['state']=='testing'"><i class="text-info fa fa-spinner"/> testing <t t-esc="bu['job']"/> <small t-if="not hide_time"><t t-esc="bu['job_time']"/></small></t>
@@ -263,8 +279,8 @@
                     </li>
                     <li t-if="bu['state']!='testing' and bu['state']!='pending'" class="divider"></li>
                     <li><a t-attf-href="/runbot/build/{{bu['id']}}">Logs <i class="fa fa-file-text-o"/></a></li>
-                    <li><a t-attf-href="http://{{bu['host']}}/runbot/static/build/#{bu['real_dest']}/logs/job_10_test_base.txt">Full base logs <i class="fa fa-file-text-o"/></a></li>
-                    <li><a t-attf-href="http://{{bu['host']}}/runbot/static/build/#{bu['real_dest']}/logs/job_20_test_all.txt">Full all logs <i class="fa fa-file-text-o"/></a></li>
+                    <li t-if="bu['host']"><a t-attf-href="http://{{bu['host']}}/runbot/static/build/#{bu['real_dest']}/logs/job_10_test_base.txt">Full base logs <i class="fa fa-file-text-o"/></a></li>
+                    <li t-if="bu['host']"><a t-attf-href="http://{{bu['host']}}/runbot/static/build/#{bu['real_dest']}/logs/job_20_test_all.txt">Full all logs <i class="fa fa-file-text-o"/></a></li>
                     <li t-if="bu['state']!='pending'" class="divider"></li>
                     <li><a t-attf-href="{{br['branch'].branch_url}}">Branch or pull <i class="fa fa-github"/></a></li>
                     <li><a t-attf-href="https://{{repo.base}}/commit/{{bu['name']}}">Commit <i class="fa fa-github"/></a></li>
@@ -308,8 +324,8 @@
                                     <li class="dropdown">
                                       <a href="#" class="dropdown-toggle" data-toggle="dropdown"><b style="font-size: 18px;"><t t-esc="repo.base"/></b><b class="caret"></b></a>
                                       <ul class="dropdown-menu">
-                                        <t t-foreach='repos' t-as='repo'>
-                                            <li><a t-attf-href="/runbot/repo/{{slug(repo)}}"><t t-esc="repo.base"/></a></li>
+                                        <t t-foreach='repos' t-as='re'>
+                                            <li><a t-attf-href="/runbot/repo/{{slug(re)}}"><t t-esc="re.base"/></a></li>
                                         </t>
                                       </ul>
                                     </li>
@@ -346,14 +362,16 @@
                                     </ul>
                                   </div>
                                 </form>
-                                <span t-foreach="host_stats" t-as="hs" class="navbar-brand navbar-right">
-                                    <t t-esc="hs['host']"/>: <t t-esc="hs['testing']"/> testing, <t t-esc="hs['running']"/> running
-                                </span>
-                                <span class="navbar-brand navbar-right">
-                                  Pending: <t t-esc="pending_total"/> 
-                                </span>
                               </t>
                             </div>
+                            <p class="text-center">
+                                <t  t-foreach="host_stats" t-as="hs">
+                                <span class="label label-default">
+                                    <t t-esc="hs['host']"/>: <t t-esc="hs['testing']"/> testing, <t t-esc="hs['running']"/> running
+                                </span>&amp;nbsp;
+                                </t>
+                                <span class="label label-info">Pending: <t t-esc="pending_total"/></span>
+                            </p>
                           </div>
                         </nav>
                         <div t-if="not repo" class="mb32">
@@ -373,11 +391,12 @@
                         </tr>
                         <tr t-foreach="branches" t-as="br">
                             <td>
-                                <i t-if="br['branch'].sticky" class="fa fa-star"/>
+                                <i t-if="br['branch'].sticky" class="fa fa-star" style="color: #f0ad4e" />
                                 <b t-esc="br['branch'].branch_name"/>
                                 <small><t t-esc="br['builds'][0]['job_age']"/></small><br/>
                                 <div class="btn-group btn-group-xs">
                                     <a t-attf-href="{{br['branch'].branch_url}}" class="btn btn-default btn-xs">Branch or pull <i class="fa fa-github"/></a>
+                                    <a t-attf-href="/runbot/#{repo.id}/#{br['branch'].branch_name}" class="btn btn-default btn-xs"><i class="fa fa-fast-forward" title="Quick Connect"/></a>
                                 </div>
                             </td>
                             <t t-foreach="br['builds']" t-as="bu">
@@ -401,7 +420,7 @@
                                         </t>
                                         <br/>
                                     </t>
-                                    <small><t t-esc="bu['dest']"/></small><br/>
+                                    <small><t t-esc="bu['dest']"/> on <t t-esc="bu['host']"/></small><br/>
                                     <t t-call="runbot.build_name"/>
                                 </td>
                             </t>
@@ -469,6 +488,11 @@
                                   <button type="button" class="btn btn-default">Expand</button>
                                 </div>
                               </form>
+
+                              <form class="navbar-form navbar-left form-inline" t-attf-action="/runbot/build/#{build['id']}/force" method='POST' t-if="request.params.get('ask_rebuild')">
+                                <a href='#' class="btn btn-danger runbot-rebuild" t-attf-data-runbot-build="#{build['id']}" > <i class='fa fa-refresh'/> Force Rebuild</a>
+                              </form>
+
                               <ul class="nav navbar-nav navbar-right">
                                 <li class="dropdown">
                                   <a href="#" class="dropdown-toggle" data-toggle="dropdown">Other builds <b class="caret"></b></a>
@@ -560,6 +584,7 @@ http {
     include /etc/nginx/mime.types;
     server_names_hash_max_size 512;
     server_names_hash_bucket_size 256;
+    client_max_body_size 10M;
     index index.html;
     log_format full '$remote_addr - $remote_user [$time_local] '
                     '"$request" $status $body_bytes_sent '
@@ -626,17 +651,21 @@ http {
           <stop offset=".9" stop-color="#fff" stop-opacity=".1"/>
           <stop offset="1"  stop-color="#fff" stop-opacity=".1"/>
         </linearGradient>
-        <rect t-attf-width="{{ left.width + right.width }}" height="20" t-att-fill="left.color"/>
-        <rect t-att-x="left.width" t-att-width="right.width" height="20" t-att-fill="right.color"/>
+        <rect rx="3" t-attf-width="{{ left.width + right.width }}" height="20" t-att-fill="left.color"/>
+        <rect rx="3" t-att-x="left.width" t-att-width="right.width" height="20" t-att-fill="right.color"/>
         <rect t-att-x="left.width" width="4" height="20" t-att-fill="right.color"/>
-        <rect t-attf-width="{{ left.width + right.width }}" height="20" fill="url(#smooth)"/>
+        <rect rx="3" t-attf-width="{{ left.width + right.width }}" height="20" fill="url(#smooth)"/>
         <g fill="#fff" text-anchor="middle" font-family="DejaVu Sans,Verdana,Geneva,sans-serif" font-size="11">
-          <text t-attf-x="{{left.width/2+1}}" y="13"><t t-esc="left.text"/></text>
-          <text t-attf-x="{{left.width+right.width/2-1}}" y="13"><t t-esc="right.text"/></text>
+          <text t-attf-x="{{left.width/2+1}}" y="15" fill="#010101" fill-opacity=".3"><t t-esc="left.text"/></text> 
+          <text t-attf-x="{{left.width/2+1}}" y="14"><t t-esc="left.text"/></text>
+          <text t-attf-x="{{left.width+right.width/2-1}}" y="15" fill="#010101" fill-opacity=".3"><t t-esc="right.text"/></text>
+          <text t-attf-x="{{left.width+right.width/2-1}}" y="14"><t t-esc="right.text"/></text>
         </g>
       </svg>
     </template>
+</data>
 
+<data noupdate="1">
     <!-- Cron -->
     <record model="ir.cron" id="repo_cron">
         <field name='name'>Runbot Cron</field>
@@ -648,6 +677,6 @@ http {
         <field name="function">cron</field>
         <field name="args">()</field>
     </record>
-
 </data>
+
 </openerp>
