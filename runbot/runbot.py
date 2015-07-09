@@ -322,6 +322,7 @@ class runbot_repo(osv.osv):
         workers = int(icp.get_param(cr, uid, 'runbot.workers', default=6))
         running_max = int(icp.get_param(cr, uid, 'runbot.running_max', default=75))
         host = fqdn()
+        _logger.debug("Scheduler run %s", host)        
 
         Build = self.pool['runbot.build']
         domain = [('repo_id', 'in', ids)]
@@ -343,6 +344,7 @@ class runbot_repo(osv.osv):
                 pending_ids = Build.search(cr, uid, domain + [('state', '=', 'pending')], order="sequence", limit=1)
 
             pending_build = Build.browse(cr, uid, pending_ids[0])
+            _logger.debug("Build_schedule")
             pending_build.schedule()
 
             # compute the number of testing and pending jobs again
@@ -880,6 +882,7 @@ class runbot_build(osv.osv):
         jobs = self.list_jobs()
         icp = self.pool['ir.config_parameter']
         timeout = int(icp.get_param(cr, uid, 'runbot.timeout', default=1800))
+        _logger.debug("Build_schedule 2")
 
         for build in self.browse(cr, uid, ids, context=context):
             if build.state == 'pending':
@@ -1013,7 +1016,7 @@ class runbot_event(osv.osv):
 
 class RunbotController(http.Controller):
 
-    @http.route(['/runbot', '/runbot/repo/<model("runbot.repo"):repo>'], type='http', auth="public", website=True)
+    @http.route(['/runbot', '/runbot/repo/<model("runbot.repo"):repo>'], type='http', auth="user", website=True)
     def repo(self, repo=None, search='', limit='100', refresh='', **post):
         registry, cr, uid = request.registry, request.cr, request.uid
 
@@ -1181,12 +1184,13 @@ class RunbotController(http.Controller):
         return werkzeug.utils.redirect('/runbot/repo/%s' % repo_id)
 
     @http.route([
-        '/runbot/badge/<model("runbot.repo"):repo>/<branch>.svg',
-        '/runbot/badge/<any(default,flat):theme>/<model("runbot.repo"):repo>/<branch>.svg',
+        '/runbotbadge/<repo_id>/<branch>.svg',
+        '/runbotbadge/<any(default,flat):theme>/<repo_id>/<branch>.svg',
     ], type="http", auth="public", methods=['GET', 'HEAD'])
-    def badge(self, repo, branch, theme='default'):
+    def badge(self, repo_id, branch, theme='default'):
+        
 
-        domain = [('repo_id', '=', repo.id),
+        domain = [('repo_id', '=', int(repo_id)),
                   ('branch_id.branch_name', '=', branch),
                   ('branch_id.sticky', '=', True),
                   ('state', 'in', ['testing', 'running', 'done']),
@@ -1195,7 +1199,7 @@ class RunbotController(http.Controller):
 
         last_update = '__last_update'
         builds = request.registry['runbot.build'].search_read(
-            request.cr, request.uid,
+            request.cr, 1,
             domain, ['state', 'result', 'job_age', last_update],
             order='id desc', limit=1)
 
