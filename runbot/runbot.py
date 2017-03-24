@@ -1321,7 +1321,7 @@ class RunbotController(http.Controller):
             repo.hook_time = datetime.datetime.now().strftime(openerp.tools.DEFAULT_SERVER_DATETIME_FORMAT)
         else:
             _logger.debug('Repo not found from request data: %s', pprint.pformat(request.jsonrequest)[:450])
-        return ""
+        return {}
 
     @http.route(['/runbot/dashboard'], type='http', auth="public", website=True)
     def dashboard(self, refresh=None):
