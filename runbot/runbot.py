@@ -46,6 +46,7 @@ _logger = logging.getLogger(__name__)
 _re_error = r'^(?:\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ (?:ERROR|CRITICAL) )|(?:Traceback \(most recent call last\):)$'
 _re_warning = r'^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ WARNING '
 _re_job = re.compile('job_\d')
+_re_coverage = re.compile(r'\bcoverage\b')
 
 # increase cron frequency from 0.016 Hz to 0.1 Hz to reduce starvation and improve throughput with many workers
 # TODO: find a nicer way than monkey patch to accomplish this
@@ -171,7 +172,7 @@ def local_pgadmin_cursor():
 
 class runbot_repo(osv.osv):
     _name = "runbot.repo"
-    _order = 'id'
+    _order = 'sequence, name, id'
 
     def _get_path(self, cr, uid, ids, field_name, arg, context=None):
         root = self.root(cr, uid)
@@ -194,6 +195,7 @@ class runbot_repo(osv.osv):
 
     _columns = {
         'name': fields.char('Repository', required=True),
+        'sequence': fields.integer('Sequence', select=True),
         'path': fields.function(_get_path, type='char', string='Directory', readonly=1),
         'base': fields.function(_get_base, type='char', string='Base URL', readonly=1),
         'nginx': fields.boolean('Nginx'),
@@ -242,7 +244,7 @@ class runbot_repo(osv.osv):
         for repo in self.browse(cr, uid, ids, context=context):
             _logger.debug('checkout %s %s %s', repo.name, treeish, dest)
             p1 = subprocess.Popen(['git', '--git-dir=%s' % repo.path, 'archive', treeish], stdout=subprocess.PIPE)
-            p2 = subprocess.Popen(['tar', '-xC', dest], stdin=p1.stdout, stdout=subprocess.PIPE)
+            p2 = subprocess.Popen(['tar', '-xmC', dest], stdin=p1.stdout, stdout=subprocess.PIPE)
             p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
             p2.communicate()[0]
 
@@ -308,11 +310,18 @@ class runbot_repo(osv.osv):
 
         refs = [[decode_utf(field) for field in line.split('\x00')] for line in git_refs.split('\n')]
 
+        cr.execute("""
+            WITH t (branch) AS (SELECT unnest(%s))
+          SELECT t.branch, b.id
+            FROM t LEFT JOIN runbot_branch b ON (b.name = t.branch)
+           WHERE b.repo_id = %s;
+        """, ([r[0] for r in refs], repo.id))
+        ref_branches = {r[0]: r[1] for r in cr.fetchall()}
+
         for name, sha, date, author, author_email, subject, committer, committer_email in refs:
             # create or get branch
-            branch_ids = Branch.search(cr, uid, [('repo_id', '=', repo.id), ('name', '=', name)])
-            if branch_ids:
-                branch_id = branch_ids[0]
+            if ref_branches.get(name):
+                branch_id = ref_branches[name]
             else:
                 _logger.debug('repo %s found new branch %s', repo.name, name)
                 branch_id = Branch.create(cr, uid, {'repo_id': repo.id, 'name': name})
@@ -428,10 +437,7 @@ class runbot_repo(osv.osv):
                         _logger.debug('failed to start nginx - failed to kill orphan worker - oh well')
 
     def killall(self, cr, uid, ids=None, context=None):
-        # kill switch
-        Build = self.pool['runbot.build']
-        build_ids = Build.search(cr, uid, [('state', 'not in', ['done', 'pending'])])
-        Build.kill(cr, uid, build_ids)
+        return
 
     def cron(self, cr, uid, ids=None, context=None):
         ids = self.search(cr, uid, [('mode', '!=', 'disabled')], context=context)
@@ -465,7 +471,18 @@ class runbot_branch(osv.osv):
             else:
                 r[branch.id] = "https://%s/tree/%s" % (branch.repo_id.base, branch.branch_name)
         return r
-
+        
+    def _get_branch_quickconnect_url(self, cr, uid, ids, fqdn, dest, context=None):
+        r = {}
+        for branch in self.browse(cr, uid, ids, context=context):
+            if branch.branch_name.startswith('7'):
+                r[branch.id] = "http://%s/login?db=%s-all&login=admin&key=admin" % (fqdn, dest)
+            elif branch.name.startswith('8'):
+                r[branch.id] = "http://%s/login?db=%s-all&login=admin&key=admin&redirect=/web?debug=1" % (fqdn, dest)
+            else:
+                r[branch.id] = "http://%s/web/login?db=%s-all&login=admin&redirect=/web?debug=1" % (fqdn, dest)
+        return r
+            
     _columns = {
         'repo_id': fields.many2one('runbot.repo', 'Repository', required=True, ondelete='cascade', select=1),
         'name': fields.char('Ref Name', required=True),
@@ -487,6 +504,21 @@ class runbot_branch(osv.osv):
             pull_number = branch.name[len('refs/pull/'):]
             return repo.github('/repos/:owner/:repo/pulls/%s' % pull_number, ignore_errors=True) or {}
         return {}
+
+    def _is_on_remote(self, cr, uid, ids, context=None):
+        # check that a branch still exists on remote
+        assert len(ids) == 1
+        branch = self.browse(cr, uid, ids[0], context=context)
+        repo = branch.repo_id
+        try:
+            repo.git(['ls-remote', '-q', '--exit-code', repo.name, branch.name])
+        except subprocess.CalledProcessError:
+            return False
+        return True
+
+    def create(self, cr, uid, values, context=None):
+        values.setdefault('coverage', _re_coverage.search(values.get('name') or '') is not None)
+        return super(runbot_branch, self).create(cr, uid, values, context=context)
 
 class runbot_build(osv.osv):
     _name = "runbot.build"
@@ -566,7 +598,8 @@ class runbot_build(osv.osv):
         'job_age': fields.function(_get_age, type='integer', string='Job age'),
         'duplicate_id': fields.many2one('runbot.build', 'Corresponding Build'),
         'server_match': fields.selection([('builtin', 'This branch includes Odoo server'),
-                                          ('exact', 'PR target or matching name prefix found'),
+                                          ('exact', 'branch/PR exact name'),
+                                          ('prefix', 'branch whose name is a prefix of current one'),
                                           ('fuzzy', 'Fuzzy - common ancestor found'),
                                           ('default', 'No match found - defaults to master')],
                                         string='Server branch matching')
@@ -653,8 +686,15 @@ class runbot_build(osv.osv):
             target_repo_ids.append(r.id)
             r = r.duplicate_id
 
-        sort_by_repo = lambda d: (target_repo_ids.index(d['repo_id'][0]), -1 * len(d.get('branch_name', '')), -1 * d['id'])
-        result_for = lambda d: (d['repo_id'][0], d['name'], 'exact')
+        _logger.debug('Search closest of %s (%s) in repos %r', name, repo.name, target_repo_ids)
+
+        sort_by_repo = lambda d: (not d['sticky'],      # sticky first
+                                  target_repo_ids.index(d['repo_id'][0]),
+                                  -1 * len(d.get('branch_name', '')),
+                                  -1 * d['id'])
+        result_for = lambda d, match='exact': (d['repo_id'][0], d['name'], match)
+        branch_exists = lambda d: branch_pool._is_on_remote(cr, uid, [d['id']], context=context)
+        fields = ['name', 'repo_id', 'sticky']
 
         # 1. same name, not a PR
         domain = [
@@ -662,10 +702,10 @@ class runbot_build(osv.osv):
             ('branch_name', '=', name),
             ('name', '=like', 'refs/heads/%'),
         ]
-        targets = branch_pool.search_read(cr, uid, domain, ['name', 'repo_id'], order='id DESC',
+        targets = branch_pool.search_read(cr, uid, domain, fields, order='id DESC',
                                           context=context)
         targets = sorted(targets, key=sort_by_repo)
-        if targets:
+        if targets and branch_exists(targets[0]):
             return result_for(targets[0])
 
         # 2. PR with head name equals
@@ -674,7 +714,7 @@ class runbot_build(osv.osv):
             ('pull_head_name', '=', name),
             ('name', '=like', 'refs/pull/%'),
         ]
-        pulls = branch_pool.search_read(cr, uid, domain, ['name', 'repo_id'], order='id DESC',
+        pulls = branch_pool.search_read(cr, uid, domain, fields, order='id DESC',
                                         context=context)
         pulls = sorted(pulls, key=sort_by_repo)
         for pull in pulls:
@@ -686,13 +726,13 @@ class runbot_build(osv.osv):
         branches = branch_pool.search_read(
             cr, uid,
             [('repo_id', 'in', target_repo_ids), ('name', '=like', 'refs/heads/%')],
-            ['name', 'branch_name', 'repo_id'], order='id DESC', context=context
+            fields + ['branch_name'], order='id DESC', context=context
         )
         branches = sorted(branches, key=sort_by_repo)
 
         for branch in branches:
-            if name.startswith(branch['branch_name'] + '-'):
-                return result_for(branch)
+            if name.startswith(branch['branch_name'] + '-') and branch_exists(branch):
+                return result_for(branch, 'prefix')
 
         # 4. Common ancestors (git merge-base)
         for target_id in target_repo_ids:
@@ -737,6 +777,7 @@ class runbot_build(osv.osv):
     def filter_modules(self, cr, uid, modules, available_modules, explicit_modules):
         blacklist_modules = set(['auth_ldap', 'document_ftp', 'base_gengo',
                                  'website_gengo', 'website_instantclick',
+                                 'pad', 'pad_project', 'note_pad',
                                  'pos_cache', 'pos_blackbox_be'])
 
         mod_filter = lambda m: (
@@ -777,13 +818,17 @@ class runbot_build(osv.osv):
                 if build.repo_id.modules_auto == 'repo':
                     modules_to_test += [
                         os.path.basename(os.path.dirname(a))
-                        for a in glob.glob(build.path('*/__openerp__.py'))
+                        for a in (glob.glob(build.path('*/__openerp__.py')) +
+                                  glob.glob(build.path('*/__manifest__.py')))
                     ]
                     _logger.debug("local modules_to_test for build %s: %s", build.dest, modules_to_test)
 
                 for extra_repo in build.repo_id.dependency_ids:
                     repo_id, closest_name, server_match = build._get_closest_branch_name(extra_repo.id)
                     repo = self.pool['runbot.repo'].browse(cr, uid, repo_id, context=context)
+                    _logger.debug('branch %s of %s: %s match branch %s of %s',
+                                  build.branch_id.name, build.repo_id.name,
+                                  server_match, closest_name, repo.name)
                     build._log(
                         'Building environment',
                         '%s match branch %s of %s' % (server_match, closest_name, repo.name)
@@ -793,7 +838,8 @@ class runbot_build(osv.osv):
                 # Finally mark all addons to move to openerp/addons
                 modules_to_move += [
                     os.path.dirname(module)
-                    for module in glob.glob(build.path('*/__openerp__.py'))
+                    for module in (glob.glob(build.path('*/__openerp__.py')) +
+                                   glob.glob(build.path('*/__manifest__.py')))
                 ]
 
             # move all addons to server addons path
@@ -809,7 +855,8 @@ class runbot_build(osv.osv):
 
             available_modules = [
                 os.path.basename(os.path.dirname(a))
-                for a in glob.glob(build.server('addons/*/__openerp__.py'))
+                for a in (glob.glob(build.server('addons/*/__openerp__.py')) +
+                          glob.glob(build.server('addons/*/__manifest__.py')))
             ]
             if build.repo_id.modules_auto == 'all' or (build.repo_id.modules_auto != 'none' and has_server):
                 modules_to_test += available_modules
@@ -837,14 +884,15 @@ class runbot_build(osv.osv):
     def cmd(self, cr, uid, ids, context=None):
         """Return a list describing the command to start the build"""
         for build in self.browse(cr, uid, ids, context=context):
-            # Server
-            server_path = build.path("openerp-server")
-            # for 7.0
-            if not os.path.isfile(server_path):
-                server_path = build.path("openerp-server.py")
-            # for 6.0 branches
-            if not os.path.isfile(server_path):
-                server_path = build.path("bin/openerp-server.py")
+            bins = [
+                'odoo-bin',                 # >= 10.0
+                'openerp-server',           # 9.0, 8.0
+                'openerp-server.py',        # 7.0
+                'bin/openerp-server.py',    # < 7.0
+            ]
+            for server_path in map(build.path, bins):
+                if os.path.isfile(server_path):
+                    break
 
             # commandline
             cmd = [
@@ -869,17 +917,9 @@ class runbot_build(osv.osv):
                     os.mkdir(datadir)
                 cmd += ["--data-dir", datadir]
 
-        # coverage
-        #coverage_file_path=os.path.join(log_path,'coverage.pickle')
-        #coverage_base_path=os.path.join(log_path,'coverage-base')
-        #coverage_all_path=os.path.join(log_path,'coverage-all')
-        #cmd = ["coverage","run","--branch"] + cmd
-        #self.run_log(cmd, logfile=self.test_all_path)
-        #run(["coverage","html","-d",self.coverage_base_path,"--ignore-errors","--include=*.py"],env={'COVERAGE_FILE': self.coverage_file_path})
-
         return cmd, build.modules
 
-    def spawn(self, cmd, lock_path, log_path, cpu_limit=None, shell=False):
+    def spawn(self, cmd, lock_path, log_path, cpu_limit=None, shell=False, env=None):
         def preexec_fn():
             os.setsid()
             if cpu_limit:
@@ -891,9 +931,9 @@ class runbot_build(osv.osv):
             # close parent files
             os.closerange(3, os.sysconf("SC_OPEN_MAX"))
             lock(lock_path)
-        out=open(log_path,"w")
+        out = open(log_path, "w")
         _logger.debug("spawn: %s stdout: %s", ' '.join(cmd), log_path)
-        p=subprocess.Popen(cmd, stdout=out, stderr=out, preexec_fn=preexec_fn, shell=shell)
+        p = subprocess.Popen(cmd, stdout=out, stderr=out, preexec_fn=preexec_fn, shell=shell, env=env)
         return p.pid
 
     def github_status(self, cr, uid, ids, context=None):
@@ -945,9 +985,31 @@ class runbot_build(osv.osv):
         if grep(build.server("tools/config.py"), "test-enable"):
             cmd.append("--test-enable")
         cmd += ['-d', '%s-all' % build.dest, '-i', openerp.tools.ustr(mods), '--stop-after-init', '--log-level=test', '--max-cron-threads=0']
+        env = None
+        if build.branch_id.coverage:
+            env = self._coverage_env(build)
+            available_modules = [
+                os.path.basename(os.path.dirname(a))
+                for a in (glob.glob(build.server('addons/*/__openerp__.py')) +
+                          glob.glob(build.server('addons/*/__manifest__.py')))
+            ]
+            bad_modules = set(available_modules) - set((mods or '').split(','))
+            omit = ['--omit', ','.join(build.server('addons', m) for m in bad_modules)] if bad_modules else []
+            cmd = ['coverage', 'run', '--branch', '--source', build.server()] + omit + cmd[1:]
         # reset job_start to an accurate job_20 job_time
         build.write({'job_start': now()})
-        return self.spawn(cmd, lock_path, log_path, cpu_limit=2100)
+        return self.spawn(cmd, lock_path, log_path, cpu_limit=2100, env=env)
+
+    def _coverage_env(self, build):
+        return dict(os.environ, COVERAGE_FILE=build.path('.coverage'))
+
+    def job_21_coverage(self, cr, uid, build, lock_path, log_path):
+        if not build.branch_id.coverage:
+            return
+        cov_path = build.path('coverage')
+        mkdirs([cov_path])
+        cmd = ["coverage", "html", "-d", cov_path, "--ignore-errors"]
+        return self.spawn(cmd, lock_path, log_path, env=self._coverage_env(build))
 
     def job_30_run(self, cr, uid, build, lock_path, log_path):
         # adjust job_end to record an accurate job_20 job_time
@@ -1051,7 +1113,6 @@ class runbot_build(osv.osv):
                     'job_end': False,
                 }
                 build.write(values)
-                cr.commit()
             else:
                 # check if current job is finished
                 lock_path = build.path('logs', '%s.lock' % build.job)
@@ -1139,9 +1200,29 @@ class runbot_build(osv.osv):
             path = os.path.join(build_dir, b)
             if b not in actives and os.path.isdir(path):
                 shutil.rmtree(path)
+        
+        # cleanup old unused databases
+        cr.execute("select id from runbot_build where state in ('testing', 'running')")
+        db_ids = [id[0] for id in cr.fetchall()]
+        if db_ids:
+            with local_pgadmin_cursor() as local_cr:
+                local_cr.execute("""
+                    SELECT datname
+                      FROM pg_database
+                     WHERE pg_get_userbyid(datdba) = current_user
+                       AND datname ~ '^[0-9]+-.*'
+                       AND SUBSTRING(datname, '^([0-9]+)-.*')::int not in %s
+                           
+                """, [tuple(db_ids)])
+                to_delete = local_cr.fetchall()
+            for db, in to_delete:
+                self._local_pg_dropdb(cr, uid, db)
 
     def kill(self, cr, uid, ids, result=None, context=None):
+        host = fqdn()
         for build in self.browse(cr, uid, ids, context=context):
+            if build.host != host:
+                continue
             build._log('kill', 'Kill build %s' % build.dest)
             build.logger('killing %s', build.pid)
             try:
@@ -1337,9 +1418,10 @@ class RunbotController(http.Controller):
                                     ORDER BY id DESC
                                        LIMIT 3
                                      ) bu ON (true)
+                        JOIN runbot_repo r ON (r.id = br.repo_id)
                        WHERE br.sticky
                          AND br.repo_id in %s
-                    ORDER BY br.repo_id, br.branch_name, bu.id DESC
+                    ORDER BY r.sequence, r.name, br.branch_name, bu.id DESC
                    """, [tuple(repos._ids)])
 
         builds = RB.browse(map(operator.itemgetter(0), cr.fetchall()))
@@ -1399,6 +1481,7 @@ class RunbotController(http.Controller):
             'port': real_build.port,
             'subject': build.subject,
             'server_match': real_build.server_match,
+            'duplicate_of': build.duplicate_id if build.state == 'duplicate' else False,
         }
 
     @http.route(['/runbot/build/<build_id>'], type='http', auth="public", website=True)
@@ -1552,14 +1635,7 @@ class RunbotController(http.Controller):
             if last_build.state != 'running':
                 url = "/runbot/build/%s?ask_rebuild=1" % last_build.id
             else:
-                branch = build.branch_id.branch_name
-                if branch.startswith('7'):
-                    base_url = "http://%s/login?db=%s-all&login=admin&key=admin"
-                elif branch.startswith('8'):
-                    base_url = "http://%s/login?db=%s-all&login=admin&key=admin&redirect=/web?debug=1"
-                else:
-                    base_url = "http://%s/web/login?db=%s-all&login=admin&redirect=/web?debug=1"
-                url = base_url % (last_build.domain, last_build.dest)
+                url = build.branch_id._get_branch_quickconnect_url(last_build.domain, last_build.dest)[build.branch_id.id]
         else:
             return request.not_found()
         return werkzeug.utils.redirect(url)
