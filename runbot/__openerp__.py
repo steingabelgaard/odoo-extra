@@ -2,7 +2,7 @@
     'name': 'Runbot',
     'category': 'Website',
     'summary': 'Runbot',
-    'version': '1.1',
+    'version': '1.2',
     'description': "Runbot",
     'author': 'OpenERP SA',
     'depends': ['website'],
@@ -12,7 +12,9 @@
     'data': [
         'runbot.xml',
         'res_config_view.xml',
+        'security/runbot_security.xml',
         'security/ir.model.access.csv',
+        'security/ir.rule.csv',
     ],
     'installable': True,
 }

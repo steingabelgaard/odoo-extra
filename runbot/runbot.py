@@ -43,7 +43,7 @@ _logger = logging.getLogger(__name__)
 #----------------------------------------------------------
 
 _re_error = r'^(?:\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ (?:ERROR|CRITICAL) )|(?:Traceback \(most recent call last\):)$'
-_re_warning = r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ WARNING (?!.*no translation for language da_DK$|.*_constraint_methods method member.organization._check_active_constrains: @constrains parameter 'active' is not writeable$)"
+_re_warning = r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ WARNING (?!.*no translation for language da_DK$|.*is not writeable$)"
 #_re_warning = r'^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ WARNING '
 #_re_warning = r'^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ WARNING (?!.*no translation for language da_DK$)'
 #_re_warning = r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ WARNING (?!.*no translation for language da_DK$|.*_constraint_methods method member.organization._check_active_constrains: @constrains parameter 'active' is not writeable$)r"
