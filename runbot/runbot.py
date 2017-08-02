@@ -947,8 +947,8 @@ class runbot_build(osv.osv):
         # run base test
         self.pg_createdb(cr, uid, "%s-base" % build.dest)
         cmd, mods = build.cmd()
-        if grep(build.server("tools/config.py"), "test-enable"):
-            cmd.append("--test-enable")
+        #if grep(build.server("tools/config.py"), "test-enable"):
+        #    cmd.append("--test-enable")
         cmd += ['-d', '%s-base' % build.dest, '-i', 'base', '--stop-after-init', '--log-level=test', '--max-cron-threads=0']
         return self.spawn(cmd, lock_path, log_path, cpu_limit=300)
 
@@ -956,8 +956,8 @@ class runbot_build(osv.osv):
         build._log('test_all', 'Start test all modules')
         self.pg_createdb(cr, uid, "%s-all" % build.dest)
         cmd, mods = build.cmd()
-        if grep(build.server("tools/config.py"), "test-enable"):
-            cmd.append("--test-enable")
+        #if grep(build.server("tools/config.py"), "test-enable"):
+        #    cmd.append("--test-enable")
         cmd += ['-d', '%s-all' % build.dest, '-i', openerp.tools.ustr(mods), '--stop-after-init', '--log-level=test', '--max-cron-threads=0']
         # reset job_start to an accurate job_20 job_time
         build.write({'job_start': now()})

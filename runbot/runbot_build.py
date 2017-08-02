@@ -252,3 +252,24 @@ class RunbotBuild(models.Model):
             if build.result == "ok":
                 build.write({'result': 'warn'})
         return res
+
+    def job_21_own_test(self, cr, uid, build, lock_path, log_path, args=None):
+        """
+        This method is used to run test in own modules, getting parameters of the
+        pylint configuration, the parameters errors and files to ignore has
+        send in list structures to method _run_test_pylint.
+
+        :param build: object build of runbot.
+        :param lock_path: path of lock file, this parameter is string.
+        :param log_path: path of log file, this parameter is string, where are
+                            has saved the log of test.
+        :param args: this parameter not is required, not is used.
+        """
+        build._log('test_own', 'Start test own modules')
+        cmd, mods = build.cmd()
+        if grep(build.server("tools/config.py"), "test-enable"):
+            cmd.append("--test-enable")
+        cmd += ['-d', '%s-all' % build.dest, '-u', openerp.tools.ustr(mods), '--stop-after-init', '--log-level=test', '--max-cron-threads=0']
+        # reset job_start to an accurate job_20 job_time
+        build.write({'job_start': now()})
+        return self.spawn(cmd, lock_path, log_path, cpu_limit=2100)
