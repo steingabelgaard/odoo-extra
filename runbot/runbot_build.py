@@ -24,6 +24,13 @@ from openerp.tools.safe_eval import safe_eval
 # Max number of lines to create logs in database
 MAX_LOG_LINES = 20
 
+_re_error = r'^(?:\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ (?:ERROR|CRITICAL) )|(?:Traceback \(most recent call last\):)$'
+
+def grep(filename, string):
+    if os.path.isfile(filename):
+        return open(filename).read().find(string) != -1
+    return False
+
 
 def get_depends(modules, addons_paths):
     """
@@ -251,6 +258,10 @@ class RunbotBuild(models.Model):
                     break
             if build.result == "ok":
                 build.write({'result': 'warn'})
+        log_test = build.path('logs', 'job_21_own_test.txt')
+        if grep(log_test, 'ERROR'):
+            build.write({'result': 'ko'})
+
         return res
 
     def job_21_own_test(self, cr, uid, build, lock_path, log_path, args=None):
@@ -271,5 +282,5 @@ class RunbotBuild(models.Model):
             cmd.append("--test-enable")
         cmd += ['-d', '%s-all' % build.dest, '-u', openerp.tools.ustr(mods), '--stop-after-init', '--log-level=test', '--max-cron-threads=0']
         # reset job_start to an accurate job_20 job_time
-        build.write({'job_start': now()})
+        # build.write({'job_start': now()})
         return self.spawn(cmd, lock_path, log_path, cpu_limit=2100)

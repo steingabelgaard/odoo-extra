@@ -31,7 +31,6 @@ import werkzeug
 import openerp
 from openerp import http, SUPERUSER_ID
 from openerp.http import request
-from openerp.modules import get_module_resource
 from openerp.osv import fields, osv
 from openerp.tools import config, appdirs
 from openerp.addons.website.models.website import slug
@@ -44,13 +43,12 @@ _logger = logging.getLogger(__name__)
 #----------------------------------------------------------
 
 _re_error = r'^(?:\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ (?:ERROR|CRITICAL) )|(?:Traceback \(most recent call last\):)$'
-_re_warning = r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ WARNING (?!.*no translation for language da_DK$|.*is not writeable$)"
+_re_warning = r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ WARNING (?!.*no translation for language da_DK$|.*is not writeable$|.*da_DDS)"
 #_re_warning = r'^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ WARNING '
 #_re_warning = r'^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ WARNING (?!.*no translation for language da_DK$)'
 #_re_warning = r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ WARNING (?!.*no translation for language da_DK$|.*_constraint_methods method member.organization._check_active_constrains: @constrains parameter 'active' is not writeable$)r"
 
 _re_job = re.compile('job_\d')
-_re_coverage = re.compile(r'\bcoverage\b')
 
 # increase cron frequency from 0.016 Hz to 0.1 Hz to reduce starvation and improve throughput with many workers
 # TODO: find a nicer way than monkey patch to accomplish this
@@ -179,7 +177,7 @@ class runbot_repo(osv.osv):
     _order = 'sequence, name, id'
 
     def _get_path(self, cr, uid, ids, field_name, arg, context=None):
-        root = self._root(cr, uid)
+        root = self.root(cr, uid)
         result = {}
         for repo in self.browse(cr, uid, ids, context=context):
             name = repo.name
@@ -228,11 +226,11 @@ class runbot_repo(osv.osv):
         'job_timeout': 30,
     }
 
-    def _domain(self, cr, uid, context=None):
+    def domain(self, cr, uid, context=None):
         domain = self.pool.get('ir.config_parameter').get_param(cr, uid, 'runbot.domain', fqdn())
         return domain
 
-    def _root(self, cr, uid, context=None):
+    def root(self, cr, uid, context=None):
         """Return root directory of repository"""
         default = os.path.join(os.path.dirname(__file__), 'static')
         return self.pool.get('ir.config_parameter').get_param(cr, uid, 'runbot.root', default)
@@ -244,7 +242,7 @@ class runbot_repo(osv.osv):
             _logger.info("git: %s", ' '.join(cmd))
             return subprocess.check_output(cmd)
 
-    def _git_export(self, cr, uid, ids, treeish, dest, context=None):
+    def git_export(self, cr, uid, ids, treeish, dest, context=None):
         for repo in self.browse(cr, uid, ids, context=context):
             _logger.debug('checkout %s %s %s', repo.name, treeish, dest)
             p1 = subprocess.Popen(['git', '--git-dir=%s' % repo.path, 'archive', treeish], stdout=subprocess.PIPE)
@@ -252,7 +250,7 @@ class runbot_repo(osv.osv):
             p1.stdout.close()  # Allow p1 to receive a SIGPIPE if p2 exits.
             p2.communicate()[0]
 
-    def _github(self, cr, uid, ids, url, payload=None, ignore_errors=False, context=None):
+    def github(self, cr, uid, ids, url, payload=None, ignore_errors=False, context=None):
         """Return a http request to be sent to github"""
         for repo in self.browse(cr, uid, ids, context=context):
             if not repo.token:
@@ -278,16 +276,11 @@ class runbot_repo(osv.osv):
                 else:
                     raise
 
-    def _update(self, cr, uid, ids, context=None):
+    def update(self, cr, uid, ids, context=None):
         for repo in self.browse(cr, uid, ids, context=context):
-            repo_name = repo.name
-            try:
-                self._update_git(cr, uid, repo)
-            except Exception:
-                _logger.exception('Fail to update repo %s', repo_name)
+            self.update_git(cr, uid, repo)
 
-
-    def _update_git(self, cr, uid, repo, context=None):
+    def update_git(self, cr, uid, repo, context=None):
         _logger.debug('repo %s updating branches', repo.name)
 
         Build = self.pool['runbot.build']
@@ -299,37 +292,29 @@ class runbot_repo(osv.osv):
             run(['git', 'clone', '--bare', repo.name, repo.path])
 
         # check for mode == hook
-        fname_fetch_head = os.path.join(repo.path, 'FETCH_HEAD')
-        if os.path.isfile(fname_fetch_head):
-            fetch_time = os.path.getmtime(fname_fetch_head)
-            if repo.mode == 'hook' and repo.hook_time and dt2time(repo.hook_time) < fetch_time:
-                t0 = time.time()
-                _logger.debug('repo %s skip hook fetch fetch_time: %ss ago hook_time: %ss ago',
-                              repo.name, int(t0 - fetch_time), int(t0 - dt2time(repo.hook_time)))
-                return
+        if repo.mode == 'hook':
+            fetch_time = os.path.getmtime(os.path.join(repo.path, 'FETCH_HEAD'))
+        if repo.mode == 'hook' and repo.hook_time and dt2time(repo.hook_time) < fetch_time:
+            t0 = time.time()
+            _logger.debug('repo %s skip hook fetch fetch_time: %ss ago hook_time: %ss ago', repo.name, int(t0 - fetch_time), int(t0 - dt2time(repo.hook_time)))
+            return
 
-        repo._git(['fetch', '-p', 'origin', '+refs/heads/*:refs/heads/*'])
-        repo._git(['fetch', '-p', 'origin', '+refs/pull/*/head:refs/pull/*'])
+        repo.git(['gc', '--auto', '--prune=all'])
+        repo.git(['fetch', '-p', 'origin', '+refs/heads/*:refs/heads/*'])
+        repo.git(['fetch', '-p', 'origin', '+refs/pull/*/head:refs/pull/*'])
 
         fields = ['refname','objectname','committerdate:iso8601','authorname','authoremail','subject','committername','committeremail']
         fmt = "%00".join(["%("+field+")" for field in fields])
-        git_refs = repo._git(['for-each-ref', '--format', fmt, '--sort=-committerdate', 'refs/heads', 'refs/pull'])
+        git_refs = repo.git(['for-each-ref', '--format', fmt, '--sort=-committerdate', 'refs/heads', 'refs/pull'])
         git_refs = git_refs.strip()
 
         refs = [[decode_utf(field) for field in line.split('\x00')] for line in git_refs.split('\n')]
 
-        cr.execute("""
-            WITH t (branch) AS (SELECT unnest(%s))
-          SELECT t.branch, b.id
-            FROM t LEFT JOIN runbot_branch b ON (b.name = t.branch)
-           WHERE b.repo_id = %s;
-        """, ([r[0] for r in refs], repo.id))
-        ref_branches = {r[0]: r[1] for r in cr.fetchall()}
-
         for name, sha, date, author, author_email, subject, committer, committer_email in refs:
             # create or get branch
-            if ref_branches.get(name):
-                branch_id = ref_branches[name]
+            branch_ids = Branch.search(cr, uid, [('repo_id', '=', repo.id), ('name', '=', name)])
+            if branch_ids:
+                branch_id = branch_ids[0]
             else:
                 _logger.debug('repo %s found new branch %s', repo.name, name)
                 branch_id = Branch.create(cr, uid, {'repo_id': repo.id, 'name': name})
@@ -357,7 +342,7 @@ class runbot_repo(osv.osv):
                                                                 fields=['sequence'], order='sequence asc', context=context)
                     if skipped_build_sequences:
                         to_be_skipped_ids = [build['id'] for build in skipped_build_sequences]
-                        Build._skip(cr, uid, to_be_skipped_ids, context=context)
+                        Build.skip(cr, uid, to_be_skipped_ids, context=context)
                         # new order keeps lowest skipped sequence
                         build_info['sequence'] = skipped_build_sequences[0]['sequence']
                 Build.create(cr, uid, build_info)
@@ -367,10 +352,9 @@ class runbot_repo(osv.osv):
         icp = self.pool['ir.config_parameter']
         running_max = int(icp.get_param(cr, uid, 'runbot.running_max', default=75))
         to_be_skipped_ids = Build.search(cr, uid, skippable_domain, order='sequence desc', offset=running_max)
-        Build._skip(cr, uid, to_be_skipped_ids)
+        Build.skip(cr, uid, to_be_skipped_ids)
 
-
-    def _scheduler(self, cr, uid, ids=None, context=None):
+    def scheduler(self, cr, uid, ids=None, context=None):
         icp = self.pool['ir.config_parameter']
         workers = int(icp.get_param(cr, uid, 'runbot.workers', default=6))
         running_max = int(icp.get_param(cr, uid, 'runbot.running_max', default=75))
@@ -382,7 +366,7 @@ class runbot_repo(osv.osv):
 
         # schedule jobs (transitions testing -> running, kill jobs, ...)
         build_ids = Build.search(cr, uid, domain_host + [('state', 'in', ['testing', 'running'])])
-        Build._schedule(cr, uid, build_ids)
+        Build.schedule(cr, uid, build_ids)
 
         # launch new tests
         testing = Build.search_count(cr, uid, domain_host + [('state', '=', 'testing')])
@@ -396,7 +380,7 @@ class runbot_repo(osv.osv):
                 pending_ids = Build.search(cr, uid, domain + [('state', '=', 'pending')], order="sequence", limit=1)
 
             pending_build = Build.browse(cr, uid, pending_ids[0])
-            pending_build._schedule()
+            pending_build.schedule()
 
             # compute the number of testing and pending jobs again
             testing = Build.search_count(cr, uid, domain_host + [('state', '=', 'testing')])
@@ -415,16 +399,14 @@ class runbot_repo(osv.osv):
         build_ids = sticky.values()
         build_ids += non_sticky
         # terminate extra running builds
-        Build._kill(cr, uid, build_ids[running_max:])
-        Build._reap(cr, uid, build_ids)
+        Build.kill(cr, uid, build_ids[running_max:])
+        Build.reap(cr, uid, build_ids)
 
-    def _reload_nginx(self, cr, uid, context=None):
+    def reload_nginx(self, cr, uid, context=None):
         settings = {}
         settings['port'] = config['xmlrpc_port']
-        settings['runbot_static'] = os.path.join(get_module_resource('runbot', 'static'), '')
-        nginx_dir = os.path.join(self._root(cr, uid), 'nginx')
+        nginx_dir = os.path.join(self.root(cr, uid), 'nginx')
         settings['nginx_dir'] = nginx_dir
-        settings['re_escape'] = re.escape
         ids = self.search(cr, uid, [('nginx','=',True)], order='id')
         if ids:
             build_ids = self.pool['runbot.build'].search(cr, uid, [('repo_id','in',ids), ('state','=','running')])
@@ -453,17 +435,11 @@ class runbot_repo(osv.osv):
         build_ids = Build.search(cr, uid, [('state', 'not in', ['done', 'pending'])])
         Build.kill(cr, uid, build_ids)
 
-    def _cron(self, cr, uid, ids=None, context=None):
-        ids = self.search(cr, uid, [('mode', '!=', 'disabled')], context=context)
-        self._update(cr, uid, ids, context=context)
-        self._scheduler(cr, uid, ids, context=context)
-        self._reload_nginx(cr, uid, context=context)
-
-    # backwards compatibility
     def cron(self, cr, uid, ids=None, context=None):
-        if uid == SUPERUSER_ID:
-            return self._cron(cr, uid, ids=ids, context=context)
-
+        ids = self.search(cr, uid, [('mode', '!=', 'disabled')], context=context)
+        self.update(cr, uid, ids, context=context)
+        self.scheduler(cr, uid, ids, context=context)
+        self.reload_nginx(cr, uid, context=context)
 
 class runbot_branch(osv.osv):
     _name = "runbot.branch"
@@ -478,7 +454,7 @@ class runbot_branch(osv.osv):
     def _get_pull_head_name(self, cr, uid, ids, field_name, arg, context=None):
         r = dict.fromkeys(ids, False)
         for bid in ids:
-            pi = self._get_pull_info(cr, SUPERUSER_ID, [bid], context=context)
+            pi = self._get_pull_info(cr, uid, [bid], context=context)
             if pi:
                 r[bid] = pi['head']['ref']
         return r
@@ -491,18 +467,7 @@ class runbot_branch(osv.osv):
             else:
                 r[branch.id] = "https://%s/tree/%s" % (branch.repo_id.base, branch.branch_name)
         return r
-        
-    def _get_branch_quickconnect_url(self, cr, uid, ids, fqdn, dest, context=None):
-        r = {}
-        for branch in self.browse(cr, uid, ids, context=context):
-            if branch.branch_name.startswith('7'):
-                r[branch.id] = "http://%s/login?db=%s-all&login=admin&key=admin" % (fqdn, dest)
-            elif branch.name.startswith('8'):
-                r[branch.id] = "http://%s/login?db=%s-all&login=admin&key=admin&redirect=/web?debug=1" % (fqdn, dest)
-            else:
-                r[branch.id] = "http://%s/web/login?db=%s-all&login=admin&redirect=/web?debug=1" % (fqdn, dest)
-        return r
-            
+
     _columns = {
         'repo_id': fields.many2one('runbot.repo', 'Repository', required=True, ondelete='cascade', select=1),
         'name': fields.char('Ref Name', required=True),
@@ -522,24 +487,8 @@ class runbot_branch(osv.osv):
         repo = branch.repo_id
         if repo.token and branch.name.startswith('refs/pull/'):
             pull_number = branch.name[len('refs/pull/'):]
-            return repo._github('/repos/:owner/:repo/pulls/%s' % pull_number, ignore_errors=True) or {}
+            return repo.github('/repos/:owner/:repo/pulls/%s' % pull_number, ignore_errors=True) or {}
         return {}
-
-    def _is_on_remote(self, cr, uid, ids, context=None):
-        # check that a branch still exists on remote
-        assert len(ids) == 1
-        branch = self.browse(cr, uid, ids[0], context=context)
-        repo = branch.repo_id
-        try:
-            repo._git(['ls-remote', '-q', '--exit-code', repo.name, branch.name])
-        except subprocess.CalledProcessError:
-            return False
-        return True
-
-    def create(self, cr, uid, values, context=None):
-        values.setdefault('coverage', _re_coverage.search(values.get('name') or '') is not None)
-        return super(runbot_branch, self).create(cr, uid, values, context=context)
-
 
 class runbot_build(osv.osv):
     _name = "runbot.build"
@@ -636,7 +585,6 @@ class runbot_build(osv.osv):
         extra_info = {'sequence' : build_id}
 
         # detect duplicate
-        duplicate_id = None
         domain = [
             ('repo_id','=',build.repo_id.duplicate_id.id), 
             ('name', '=', build.name), 
@@ -644,33 +592,25 @@ class runbot_build(osv.osv):
             '|', ('result', '=', False), ('result', '!=', 'skipped')
         ]
         duplicate_ids = self.search(cr, uid, domain, context=context)
-        for duplicate in self.browse(cr, uid, duplicate_ids, context=context):
-            duplicate_id = duplicate.id
-            # Consider the duplicate if its closest branches are the same than the current build closest branches.
-            for extra_repo in build.repo_id.dependency_ids:
-                build_closest_name = build._get_closest_branch_name(extra_repo.id)[1]
-                duplicate_closest_name = duplicate._get_closest_branch_name(extra_repo.id)[1]
-                if build_closest_name != duplicate_closest_name:
-                    duplicate_id = None
-        if duplicate_id:
-            extra_info.update({'state': 'duplicate', 'duplicate_id': duplicate_id})
-            self.write(cr, uid, [duplicate_id], {'duplicate_id': build_id})
+
+        if len(duplicate_ids):
+            extra_info.update({'state': 'duplicate', 'duplicate_id': duplicate_ids[0]})
+            self.write(cr, uid, [duplicate_ids[0]], {'duplicate_id': build_id})
         self.write(cr, uid, [build_id], extra_info, context=context)
-        return build_id
-    
-    def _reset(self, cr, uid, ids, context=None):
+
+    def reset(self, cr, uid, ids, context=None):
         self.write(cr, uid, ids, { 'state' : 'pending' }, context=context)
 
-    def _logger(self, cr, uid, ids, *l, **kw):
+    def logger(self, cr, uid, ids, *l, **kw):
         l = list(l)
         for build in self.browse(cr, uid, ids, **kw):
             l[0] = "%s %s" % (build.dest , l[0])
             _logger.debug(*l)
 
-    def _list_jobs(self):
+    def list_jobs(self):
         return sorted(job for job in dir(self) if _re_job.match(job))
 
-    def _find_port(self, cr, uid):
+    def find_port(self, cr, uid):
         # currently used port
         ids = self.search(cr, uid, [('state','not in',['pending','done'])])
         ports = set(i['port'] for i in self.read(cr, uid, ids, ['port']))
