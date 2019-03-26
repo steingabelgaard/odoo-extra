@@ -271,7 +271,7 @@
     <template id="runbot.build_button">
         <div t-attf-class="pull-right">
             <div t-attf-class="btn-group {{klass}}">
-                <a t-if="bu['state']=='running'" t-attf-href="http://{{bu['domain']}}/?db={{bu['dest']}}-all" class="btn btn-primary"><i class="fa fa-sign-in"/></a>
+                <a t-if="bu['state']=='running'" t-attf-href="http://{{bu['domain']}}:{{bu['port']}}/?db={{bu['dest']}}-all" class="btn btn-primary"><i class="fa fa-sign-in"/></a>
                 <a t-attf-href="/runbot/build/{{bu['id']}}" class="btn btn-default"><i class="fa fa-file-text-o"/></a>
                 <a t-attf-href="https://#{repo.base}/commit/#{bu['name']}" class="btn btn-default"><i class="fa fa-github"/></a>
                 <button class="btn btn-default dropdown-toggle" data-toggle="dropdown"><i class="fa fa-cog"/><span class="caret"></span></button>
@@ -336,7 +336,7 @@
                                       <a href="#" class="dropdown-toggle" data-toggle="dropdown"><b style="font-size: 18px;"><t t-esc="repo.base"/></b><b class="caret"></b></a>
                                       <ul class="dropdown-menu">
                                         <t t-foreach='repos' t-as='re'>
-                                            <li><a t-attf-href="/runbot/repo/{{slug(re)}}"><t t-esc="re.base"/></a></li>
+                                            <li><a t-attf-href="/runbot/repo/{{re.id}}"><t t-esc="re.base"/></a></li>
                                         </t>
                                       </ul>
                                     </li>

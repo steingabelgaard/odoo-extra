@@ -1277,8 +1277,11 @@ class runbot_event(osv.osv):
 
 class RunbotController(http.Controller):
 
-    @http.route(['/runbot', '/runbot/repo/<model("runbot.repo"):repo>'], type='http', auth="public", website=True)
-    def repo(self, repo=None, search='', limit='100', refresh='', **post):
+    @http.route(['/runbot', '/runbot/repo/<int:repo_id>'], type='http', auth="public", website=True)
+    def repo(self, repo_id=None, search='', limit='100', refresh='', **post):
+        if repo_id:
+            repo = request.registry['runbot.repo'].browse(request.cr, request.uid, [repo_id])
+
         registry, cr, uid = request.registry, request.cr, request.uid
 
         branch_obj = registry['runbot.branch']
@@ -1366,7 +1369,7 @@ class RunbotController(http.Controller):
                 'testing': count([('repo_id','=',repo.id), ('state','=','testing')]),
                 'running': count([('repo_id','=',repo.id), ('state','=','running')]),
                 'pending': count([('repo_id','=',repo.id), ('state','=','pending')]),
-                'qu': QueryURL('/runbot/repo/'+slug(repo), search=search, limit=limit, refresh=refresh, **filters),
+                'qu': QueryURL('/runbot/repo/'+repo.id, search=search, limit=limit, refresh=refresh, **filters),
                 'filters': filters,
             })
 
