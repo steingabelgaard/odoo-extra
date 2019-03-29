@@ -48,6 +48,10 @@ _re_warning = r'^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ WARNING (?!.*no transl
 _re_job = re.compile('job_\d')
 _re_coverage = re.compile(r'\bcoverage\b')
 
+SKIP_WORDS = ['[ci skip]', '[skip ci]']
+SKIP_WORDS_RE = re.compile("|".join(map(re.escape, SKIP_WORDS)))
+
+
 # increase cron frequency from 0.016 Hz to 0.1 Hz to reduce starvation and improve throughput with many workers
 # TODO: find a nicer way than monkey patch to accomplish this
 openerp.service.server.SLEEP_INTERVAL = 10
@@ -628,6 +632,13 @@ class runbot_build(osv.osv):
             extra_info.update({'state': 'duplicate', 'duplicate_id': duplicate_ids[0]})
             self.write(cr, uid, [duplicate_ids[0]], {'duplicate_id': build_id})
         self.write(cr, uid, [build_id], extra_info, context=context)
+        
+        if SKIP_WORDS_RE.search(build.subject.lower()):
+            self.log(cr, uid, [build_id], 'subject_skip', 'The commit message skipped this build', context=context)
+            self.skip(cr, uid, [build_id], context=context)
+
+        return build_id
+
 
     def reset(self, cr, uid, ids, context=None):
         self.write(cr, uid, ids, { 'state' : 'pending' }, context=context)
