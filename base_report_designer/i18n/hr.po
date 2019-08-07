@@ -5,17 +5,17 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: OpenERP Server 6.0dev\n"
-"Report-Msgid-Bugs-To: support@openerp.com\n"
+"Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2012-12-21 17:05+0000\n"
 "PO-Revision-Date: 2012-12-10 07:10+0000\n"
 "Last-Translator: Goran Kliska <gkliska@gmail.com>\n"
 "Language-Team: Vinteh\n"
+"Language: hr\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "X-Launchpad-Export-Date: 2014-04-22 07:02+0000\n"
 "X-Generator: Launchpad (build 16985)\n"
-"Language: hr\n"
 
 #. module: base_report_designer
 #: model:ir.model,name:base_report_designer.model_base_report_sxw
@@ -65,8 +65,7 @@ msgid "title"
 msgstr "naslov"
 
 #. module: base_report_designer
-#: field:base.report.file.sxw,report_id:0
-#: field:base.report.sxw,report_id:0
+#: field:base.report.file.sxw,report_id:0 field:base.report.sxw,report_id:0
 msgid "Report"
 msgstr "Izvještaj"
 
@@ -86,8 +85,7 @@ msgid "File name"
 msgstr "Naziv datoteke"
 
 #. module: base_report_designer
-#: view:base.report.file.sxw:0
-#: view:base.report.sxw:0
+#: view:base.report.file.sxw:0 view:base.report.sxw:0
 msgid "Get a report"
 msgstr "Napravi Izvještaj"
 
@@ -184,11 +182,9 @@ msgstr ""
 msgid "Select your report"
 msgstr "Odaberite izvještaj"
 
-#, python-format
 #~ msgid "Report does not contain the sxw content!"
 #~ msgstr "Izvještaj ne sadrži sxw sadržaj!"
 
-#, python-format
 #~ msgid "Error"
 #~ msgstr "Greška"
 
@@ -218,14 +214,14 @@ msgstr "Odaberite izvještaj"
 
 #~ msgid ""
 #~ "This is the template of your requested report. Save it as a .SXW file and "
-#~ "open it with OpenOffice. Don't forget to install the Tiny OpenOffice package "
-#~ "to modify it. Once it is modified, re-upload it in Open ERP using this "
-#~ "wizard."
+#~ "open it with OpenOffice. Don't forget to install the Tiny OpenOffice "
+#~ "package to modify it. Once it is modified, re-upload it in Open ERP using "
+#~ "this wizard."
 #~ msgstr ""
-#~ "Ovo je Predložak vašeg traženog Izvještaja. Spremite ga kao .SXW datoteku i "
-#~ "otvorite s programon OpenOffice. Ne zaboravite instalirati Tiny OpenOffice "
-#~ "paket kako biste mogli vršiti izmjene. kad izvršite izmjene, vratite "
-#~ "datoteku u Open ERP koristeći ovaj Čarobnjak."
+#~ "Ovo je Predložak vašeg traženog Izvještaja. Spremite ga kao .SXW datoteku "
+#~ "i otvorite s programon OpenOffice. Ne zaboravite instalirati Tiny "
+#~ "OpenOffice paket kako biste mogli vršiti izmjene. kad izvršite izmjene, "
+#~ "vratite datoteku u Open ERP koristeći ovaj Čarobnjak."
 
 #~ msgid "Update the report"
 #~ msgstr "Ažurirajte Izvještaj"

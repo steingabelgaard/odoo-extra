@@ -1,15 +1,16 @@
 # Translation of OpenERP Server.
 # This file contains the translation of the following modules:
-#	* base_report_designer
+# 	* base_report_designer
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: OpenERP Server 5.0.4\n"
-"Report-Msgid-Bugs-To: support@openerp.com\n"
+"Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2012-12-21 17:05+0000\n"
 "PO-Revision-Date: 2012-12-11 15:31+0000\n"
 "Last-Translator: Rui Franco (multibase.pt) <Unknown>\n"
 "Language-Team: \n"
+"Language: \n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -66,8 +67,7 @@ msgid "title"
 msgstr "Título"
 
 #. module: base_report_designer
-#: field:base.report.file.sxw,report_id:0
-#: field:base.report.sxw,report_id:0
+#: field:base.report.file.sxw,report_id:0 field:base.report.sxw,report_id:0
 msgid "Report"
 msgstr "Relatório"
 
@@ -87,8 +87,7 @@ msgid "File name"
 msgstr "Nome do Ficheiro"
 
 #. module: base_report_designer
-#: view:base.report.file.sxw:0
-#: view:base.report.sxw:0
+#: view:base.report.file.sxw:0 view:base.report.sxw:0
 msgid "Get a report"
 msgstr "Obter um relatório"
 
@@ -224,11 +223,9 @@ msgstr "Selecione o seu relatório"
 #~ msgid "Report designer interface module"
 #~ msgstr "Relatório do módulo de interface de designer"
 
-#, python-format
 #~ msgid "Report does not contain the sxw content!"
 #~ msgstr "Relatório não pode conter o conteúdos sxw!"
 
-#, python-format
 #~ msgid "Error"
 #~ msgstr "Erro"
 
@@ -237,14 +234,14 @@ msgstr "Selecione o seu relatório"
 
 #~ msgid ""
 #~ "This is the template of your requested report. Save it as a .SXW file and "
-#~ "open it with OpenOffice. Don't forget to install the Tiny OpenOffice package "
-#~ "to modify it. Once it is modified, re-upload it in Open ERP using this "
-#~ "wizard."
+#~ "open it with OpenOffice. Don't forget to install the Tiny OpenOffice "
+#~ "package to modify it. Once it is modified, re-upload it in Open ERP using "
+#~ "this wizard."
 #~ msgstr ""
 #~ "Este é o modelo do seu relatório pedido. Guarde-o como um ficheiro .SXW e "
-#~ "abra-o com OpenOffice. Não esqueça de instalar o pacote Tiny OpenOffice para "
-#~ "modificá-lo. Uma vez modificado, transfira-o para o Open ERP usando o "
-#~ "assistente."
+#~ "abra-o com OpenOffice. Não esqueça de instalar o pacote Tiny OpenOffice "
+#~ "para modificá-lo. Uma vez modificado, transfira-o para o Open ERP usando "
+#~ "o assistente."
 
 #~ msgid "Report designer introduction"
 #~ msgstr "Introdução do Relatório de designer"

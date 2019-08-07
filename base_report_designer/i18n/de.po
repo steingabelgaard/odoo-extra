@@ -1,16 +1,17 @@
 # Translation of OpenERP Server.
 # This file contains the translation of the following modules:
-#	* base_report_designer
+# 	* base_report_designer
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: OpenERP Server 6.0dev\n"
-"Report-Msgid-Bugs-To: support@openerp.com\n"
+"Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2012-12-21 17:05+0000\n"
 "PO-Revision-Date: 2012-12-19 19:54+0000\n"
-"Last-Translator: Thorsten Vocks (OpenBig.org) <thorsten.vocks@big-"
-"consulting.net>\n"
+"Last-Translator: Thorsten Vocks (OpenBig.org) <thorsten.vocks@big-consulting."
+"net>\n"
 "Language-Team: \n"
+"Language: \n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -67,8 +68,7 @@ msgid "title"
 msgstr "Titel"
 
 #. module: base_report_designer
-#: field:base.report.file.sxw,report_id:0
-#: field:base.report.sxw,report_id:0
+#: field:base.report.file.sxw,report_id:0 field:base.report.sxw,report_id:0
 msgid "Report"
 msgstr "Report"
 
@@ -88,8 +88,7 @@ msgid "File name"
 msgstr "Dateiname"
 
 #. module: base_report_designer
-#: view:base.report.file.sxw:0
-#: view:base.report.sxw:0
+#: view:base.report.file.sxw:0 view:base.report.sxw:0
 msgid "Get a report"
 msgstr "Generiere einen Bericht"
 
@@ -197,7 +196,6 @@ msgstr "Wählen Sie Ihren Report"
 #~ msgid "Create a new report"
 #~ msgstr "Erstelle neuen Bericht"
 
-#, python-format
 #~ msgid "Error"
 #~ msgstr "Fehler"
 
@@ -216,7 +214,6 @@ msgstr "Wählen Sie Ihren Report"
 #~ msgid "Your report has been modified."
 #~ msgstr "Der Bericht wurde geändert."
 
-#, python-format
 #~ msgid "Report does not contain the sxw content!"
 #~ msgstr "Report enthält keine .sxw Inhalte!"
 
@@ -243,14 +240,14 @@ msgstr "Wählen Sie Ihren Report"
 
 #~ msgid ""
 #~ "This is the template of your requested report. Save it as a .SXW file and "
-#~ "open it with OpenOffice. Don't forget to install the Tiny OpenOffice package "
-#~ "to modify it. Once it is modified, re-upload it in Open ERP using this "
-#~ "wizard."
+#~ "open it with OpenOffice. Don't forget to install the Tiny OpenOffice "
+#~ "package to modify it. Once it is modified, re-upload it in Open ERP using "
+#~ "this wizard."
 #~ msgstr ""
-#~ "Das ist eine Vorlage von Ihrem abgerufenem Report. Speichern Sie diesen als "
-#~ ".SXW Datei und öffnen diesen mit OpenOffice. Vergessen Sie nicht das OpenERP "
-#~ "OpenOffice Paket zu installieren. Nach der Änderung verwenden Sie diesen "
-#~ "Assistenten um den Bericht in OpenERP zu laden."
+#~ "Das ist eine Vorlage von Ihrem abgerufenem Report. Speichern Sie diesen "
+#~ "als .SXW Datei und öffnen diesen mit OpenOffice. Vergessen Sie nicht das "
+#~ "OpenERP OpenOffice Paket zu installieren. Nach der Änderung verwenden Sie "
+#~ "diesen Assistenten um den Bericht in OpenERP zu laden."
 
 #~ msgid "_Close"
 #~ msgstr "Beenden"
