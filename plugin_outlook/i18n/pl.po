@@ -6,11 +6,12 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: openobject-addons\n"
-"Report-Msgid-Bugs-To: FULL NAME <EMAIL@ADDRESS>\n"
+"Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2012-12-21 17:05+0000\n"
 "PO-Revision-Date: 2011-01-12 18:59+0000\n"
 "Last-Translator: OpenERP Administrators <Unknown>\n"
 "Language-Team: Polish <pl@li.org>\n"
+"Language: pl\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -83,8 +84,7 @@ msgid "Installation and Configuration Steps"
 msgstr "Kroki instalacji i konfiguracji"
 
 #. module: plugin_outlook
-#: help:outlook.installer,plugin32:0
-#: help:outlook.installer,plugin64:0
+#: help:outlook.installer,plugin32:0 help:outlook.installer,plugin64:0
 msgid "Outlook plug-in file. Save this file and install it in Outlook."
 msgstr ""
 
@@ -95,9 +95,11 @@ msgstr ""
 #~ msgstr "_Zamknij"
 
 #~ msgid ""
-#~ "outlook plug-in file. Save as this file and install this plug-in in outlook."
+#~ "outlook plug-in file. Save as this file and install this plug-in in "
+#~ "outlook."
 #~ msgstr ""
-#~ "Plik wtyczki outlooka. Zapisz jako ten plik i instaluj tę wtyczkę w outlooku."
+#~ "Plik wtyczki outlooka. Zapisz jako ten plik i instaluj tę wtyczkę w "
+#~ "outlooku."
 
 #~ msgid "Description"
 #~ msgstr "Opis"
