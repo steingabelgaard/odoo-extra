@@ -6,11 +6,12 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: openobject-addons\n"
-"Report-Msgid-Bugs-To: FULL NAME <EMAIL@ADDRESS>\n"
+"Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2012-12-21 17:05+0000\n"
 "PO-Revision-Date: 2012-11-28 13:58+0000\n"
 "Last-Translator: 盈通 ccdos <ccdos@intoerp.com>\n"
 "Language-Team: Chinese (Simplified) <zh_CN@li.org>\n"
+"Language: \n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
@@ -41,8 +42,7 @@ msgstr "安装 Thunderbird 插件"
 
 #. module: plugin_thunderbird
 #: help:plugin_thunderbird.installer,plugin_file:0
-msgid ""
-"Thunderbird plug-in file. Save this file and install it in Thunderbird."
+msgid "Thunderbird plug-in file. Save this file and install it in Thunderbird."
 msgstr "Thunderbird 插件的文件file。保存此文件，然后在Thunderbird 中安装。"
 
 #. module: plugin_thunderbird
@@ -109,8 +109,8 @@ msgid ""
 "From the Thunderbird menubar: Tools ­> Add-ons -> Screwdriver/Wrench Icon -> "
 "Install add-on from file..."
 msgstr ""
-"从 Thunderbird 的菜单条：Tools ­> Add-ons -> Screwdriver/Wrench Icon ->  Install "
-"add-on from file..."
+"从 Thunderbird 的菜单条：Tools ­> Add-ons -> Screwdriver/Wrench Icon ->  "
+"Install add-on from file..."
 
 #. module: plugin_thunderbird
 #: view:plugin_thunderbird.installer:0
@@ -138,6 +138,8 @@ msgstr "从 Thunderbird  的菜单条 : OpenERP -> Configuration."
 #~ msgstr "图像"
 
 #~ msgid ""
-#~ "This plug-in allows you to link your e-mail to OpenERP's documents. You can "
-#~ "attach it to any existing one in OpenERP or create a new one."
-#~ msgstr "这插件允许你把你的电子邮件链接到系统的文档到中，你能附属在系统中任何现有的文档或创建一个新的文档。"
+#~ "This plug-in allows you to link your e-mail to OpenERP's documents. You "
+#~ "can attach it to any existing one in OpenERP or create a new one."
+#~ msgstr ""
+#~ "这插件允许你把你的电子邮件链接到系统的文档到中，你能附属在系统中任何现有的"
+#~ "文档或创建一个新的文档。"
