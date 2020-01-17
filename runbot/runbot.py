@@ -1381,7 +1381,7 @@ class RunbotController(http.Controller):
                 'testing': count([('repo_id','=',repo.id), ('state','=','testing')]),
                 'running': count([('repo_id','=',repo.id), ('state','=','running')]),
                 'pending': count([('repo_id','=',repo.id), ('state','=','pending')]),
-                'qu': QueryURL('/runbot/repo/'+repo.id, search=search, limit=limit, refresh=refresh, **filters),
+                'qu': QueryURL('/runbot/repo/'+str(repo.id), search=search, limit=limit, refresh=refresh, **filters),
                 'filters': filters,
             })
 
