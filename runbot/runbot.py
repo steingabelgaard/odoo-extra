@@ -1290,6 +1290,7 @@ class RunbotController(http.Controller):
 
     @http.route(['/runbot', '/runbot/repo/<int:repo_id>'], type='http', auth="public", website=True)
     def repo(self, repo_id=None, search='', limit='100', refresh='', **post):
+        repo = False
         if repo_id:
             repo = request.registry['runbot.repo'].browse(request.cr, request.uid, [repo_id])
 
