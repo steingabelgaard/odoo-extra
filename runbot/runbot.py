@@ -634,7 +634,7 @@ class runbot_build(osv.osv):
         self.write(cr, uid, [build_id], extra_info, context=context)
         
         if SKIP_WORDS_RE.search(build.subject.lower()):
-            self.log(cr, uid, [build_id], 'subject_skip', 'The commit message skipped this build', context=context)
+            self._log(cr, uid, [build_id], 'subject_skip', 'The commit message skipped this build', context=context)
             self.skip(cr, uid, [build_id], context=context)
 
         return build_id
