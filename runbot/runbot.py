@@ -1533,25 +1533,42 @@ class RunbotController(http.Controller):
             domain.append(('name', 'ilike', search))
         logging_ids = Logging.search(cr, SUPERUSER_ID, domain)
         
-        log_all = build.path('logs', 'job_20_test_all.txt')
-        conv = Ansi2HTMLConverter(inline=True)
-        with codecs.open(log_all, mode='r', encoding="utf-8") as file:
-            ansi = file.read()
-
-        log_html = conv.convert(ansi)
-
-
         context = {
             'repo': build.repo_id,
             'build': self.build_info(build),
             'br': {'branch': build.branch_id},
             'logs': Logging.browse(cr, SUPERUSER_ID, logging_ids),
             'other_builds': other_builds,
-            'log_html': log_html,
         }
         #context['type'] = type
         #context['level'] = level
         return request.render("runbot.build", context)
+
+    @http.route(['/runbot/build/<build_id>/color'], type='http', auth="public", website=True)
+    def build_color(self, build_id=None, search=None, **post):
+        registry, cr, uid, context = request.registry, request.cr, request.uid, request.context
+
+        Build = registry['runbot.build']
+        Logging = registry['ir.logging']
+
+        build = Build.browse(cr, uid, [int(build_id)])[0]
+        if not build.exists():
+            return request.not_found()
+
+        try:
+            build.sudo(uid).check_access_rights('read')
+            build.sudo(uid).check_access_rule('read')
+        except openerp.exceptions.AccessError:
+            return request.not_found()
+        
+        log_all = build.path('logs', 'job_20_test_all.txt')
+        conv = Ansi2HTMLConverter()
+        with codecs.open(log_all, mode='r', encoding="utf-8") as file:
+            ansi = file.read()
+
+        log_html = conv.convert(ansi)
+
+        return request..make_response(log_html, headers=[('Content-Type', 'text/html')])
 
     @http.route(['/runbot/build/<build_id>/force'], type='http', auth="public", methods=['POST'], csrf=False)
     def build_force(self, build_id, **post):

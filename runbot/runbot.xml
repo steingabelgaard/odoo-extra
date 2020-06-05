@@ -293,6 +293,7 @@
                     <li t-if="bu['host']"><a t-attf-href="http://{{bu['host']}}/runbot/static/build/#{bu['real_dest']}/logs/job_10_test_base.txt">Full base logs <i class="fa fa-file-text-o"/></a></li>
                     <li t-if="bu['host']"><a t-attf-href="http://{{bu['host']}}/runbot/static/build/#{bu['real_dest']}/logs/job_20_test_all.txt">Full all logs <i class="fa fa-file-text-o"/></a></li>
                     <li t-if="bu['host']"><a t-attf-href="http://{{bu['host']}}/runbot/static/build/#{bu['real_dest']}/logs/job_30_run.txt">Full run logs <i class="fa fa-file-text-o"/></a></li>
+                    <li t-if="bu['host']"><a t-attf-href="http://{{bu['host']}}/runbot/build/{bu['id']}/color">Color logs <i class="fa fa-file-text-o"/></a></li>
                     <li t-if="bu['state']!='pending'" class="divider"></li>
                     <li><a t-attf-href="{{br['branch'].branch_url}}">Branch or pull <i class="fa fa-github"/></a></li>
                     <li><a t-attf-href="https://{{repo.base}}/commit/{{bu['name']}}">Commit <i class="fa fa-github"/></a></li>
@@ -628,7 +629,6 @@
                             </tr>
                         </t>
                         </table>
-                        <p><t t-raw="log_html"/></p>
                     </div>
                 </div>
             </div>
