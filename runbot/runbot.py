@@ -1535,7 +1535,7 @@ class RunbotController(http.Controller):
         
         log_all = build.path('logs', 'job_20_test_all.txt')
         conv = Ansi2HTMLConverter()
-        with codecs.open('Hentet/job_20_test_all.txt', mode='r', encoding="utf-8") as file:
+        with codecs.open(log_all, mode='r', encoding="utf-8") as file:
             ansi = file.read()
 
         log_html = conv.convert(ansi)
