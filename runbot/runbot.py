@@ -1568,7 +1568,7 @@ class RunbotController(http.Controller):
 
         log_html = conv.convert(ansi)
 
-        return request..make_response(log_html, headers=[('Content-Type', 'text/html')])
+        return request.make_response(log_html, headers=[('Content-Type', 'text/html')])
 
     @http.route(['/runbot/build/<build_id>/force'], type='http', auth="public", methods=['POST'], csrf=False)
     def build_force(self, build_id, **post):
