@@ -1534,7 +1534,7 @@ class RunbotController(http.Controller):
         logging_ids = Logging.search(cr, SUPERUSER_ID, domain)
         
         log_all = build.path('logs', 'job_20_test_all.txt')
-        conv = Ansi2HTMLConverter()
+        conv = Ansi2HTMLConverter(inline=True)
         with codecs.open(log_all, mode='r', encoding="utf-8") as file:
             ansi = file.read()
 
