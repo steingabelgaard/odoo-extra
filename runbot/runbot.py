@@ -37,6 +37,9 @@ from openerp.tools import config, appdirs
 from openerp.addons.website.models.website import slug
 from openerp.addons.website_sale.controllers.main import QueryURL
 
+from ansi2html import Ansi2HTMLConverter
+import codecs
+
 _logger = logging.getLogger(__name__)
 
 #----------------------------------------------------------
@@ -1529,13 +1532,22 @@ class RunbotController(http.Controller):
         if search:
             domain.append(('name', 'ilike', search))
         logging_ids = Logging.search(cr, SUPERUSER_ID, domain)
+        
+        log_all = build.path('logs', 'job_20_test_all.txt')
+        conv = Ansi2HTMLConverter()
+        with codecs.open('Hentet/job_20_test_all.txt', mode='r', encoding="utf-8") as file:
+            ansi = file.read()
+
+        log_html = conv.convert(ansi)
+
 
         context = {
             'repo': build.repo_id,
             'build': self.build_info(build),
             'br': {'branch': build.branch_id},
             'logs': Logging.browse(cr, SUPERUSER_ID, logging_ids),
-            'other_builds': other_builds
+            'other_builds': other_builds,
+            'log_html': log_html,
         }
         #context['type'] = type
         #context['level'] = level
