@@ -47,7 +47,7 @@ _logger = logging.getLogger(__name__)
 #----------------------------------------------------------
 
 _re_error = r'^(?:\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ (?:ERROR|CRITICAL) )|(?:Traceback \(most recent call last\):)$'
-_re_warning = r'^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ WARNING (?!.*no translation for language da_DK$|.*is not writeable$|.*da_DDS|.*da_KFUMKFUK)'
+_re_warning = r'^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3} \d+ WARNING (?!.*no translation for language da_DK$|.*is not writeable$|.*da_DDS|.*da_KFUMKFUK|.*CryptographyDeprecationWarning*)'
 _re_job = re.compile('job_\d')
 _re_coverage = re.compile(r'\bcoverage\b')
 
